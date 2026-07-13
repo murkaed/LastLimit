@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+venv/
+textual_env/
+.env/
+
+# IDE / personal
+.idea/
+.qwen/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+*.orig
+
+# Scratch
+test.py
+scratch*
