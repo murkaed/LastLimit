@@ -58,7 +58,7 @@ class ShipModule:
         self.energy_consumption = info.get("energy", 0)
         STAT_KEYS = {"power","speed","evasion","damage","accuracy",
                      "shield_cap","shield_regen","sensor_range",
-                     "cargo_bonus","crew_efficiency","hull_bonus"}
+                     "cargo_bonus","crew_efficiency","hull_bonus","range"}
         self.stats = {k: v for k, v in info.items() if k in STAT_KEYS}
         self.durability = info.get("durability", 50)
         self.max_durability = self.durability
@@ -162,6 +162,7 @@ class PlayerShip:
             "speed": 0, "evasion": 0, "damage": 0, "accuracy": 0,
             "shield_cap": 0, "shield_regen": 0, "sensor_range": 7,
             "cargo_bonus": 0, "crew_efficiency": 0, "hull_bonus": 0,
+            "range": 1,
         }
         total = self.total_power_generated()
         used = self.total_power_consumed()

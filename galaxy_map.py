@@ -616,10 +616,11 @@ class GalaxyMapApp(App):
             if t.alive and max(abs(t.x - px), abs(t.y - py)) <= 1:
                 nn = self._direction_name(t.x - px, t.y - py) if (t.x != px or t.y != py) else ""
                 acts.append(("c", f"(C)hat {t.name}[{t.faction}]", "_act_hail_npc", f"Trader {nn}"))
+        rng = self.ship.get_effective_stats().get("range", 1)
         for p in self.galaxy.pirates:
-            if p.alive and max(abs(p.x - px), abs(p.y - py)) <= 1:
+            if p.alive and max(abs(p.x - px), abs(p.y - py)) <= rng:
                 nn = self._direction_name(p.x - px, p.y - py) if (p.x != px or p.y != py) else ""
-                acts.append(("f", f"(F)ire {p.name}", "_act_fire_pirate", f"Pirate {nn}"))
+                acts.append(("f", f"(F)ire {p.name} [{nn}]", "_act_fire_pirate", f"Pirate {nn}"))
 
         ob = self.galaxy.objects.get((px, py))
         if ob:
@@ -745,8 +746,9 @@ class GalaxyMapApp(App):
         self.logger.system("No NPC.")
 
     def _act_fire_pirate(self):
+        rng = self.ship.get_effective_stats().get("range", 1)
         for p in self.galaxy.pirates:
-            if p.alive and max(abs(p.x - self.player_x), abs(p.y - self.player_y)) <= 1:
+            if p.alive and max(abs(p.x - self.player_x), abs(p.y - self.player_y)) <= rng:
                 stats = self.ship.get_effective_stats()
                 dmg = stats.get("damage", 20)
                 acc = stats.get("accuracy", 80)
@@ -1139,9 +1141,10 @@ class GalaxyMapApp(App):
         elif c == "attack" and len(p) >= 2:
             name = " ".join(p[1:])
             npc = self.galaxy.get_npc_by_name(name)
+            rng = self.ship.get_effective_stats().get("range", 1)
             if not npc or not npc.alive or max(abs(npc.x - self.player_x),
-                                                abs(npc.y - self.player_y)) > 1:
-                self.logger.system(f"No '{name}' nearby."); return
+                                                abs(npc.y - self.player_y)) > rng:
+                self.logger.system(f"No '{name}' in range ({rng})."); return
             stats = self.ship.get_effective_stats()
             dmg = stats.get("damage", 25)
             acc = stats.get("accuracy", 70)
@@ -1317,13 +1320,19 @@ class GalaxyMapApp(App):
             else:
                 self.logger.system("No station.")
         elif event.key == "f":
+            rng = self.ship.get_effective_stats().get("range", 1)
+            closest = None
+            closest_dist = 999
             for p in self.galaxy.pirates:
-                if p.alive and max(abs(p.x - self.player_x),
-                                   abs(p.y - self.player_y)) <= 1:
-                    self._act_fire_pirate()
-                    break
+                if p.alive:
+                    d = max(abs(p.x - self.player_x), abs(p.y - self.player_y))
+                    if d <= rng and d < closest_dist:
+                        closest = p
+                        closest_dist = d
+            if closest:
+                self._act_fire_pirate()
             else:
-                self.logger.system("No pirate.")
+                self.logger.system(f"No pirate in range ({rng}).")
             self.update_map(); self.update_info()
         elif event.key in ("f1", "F1"):
             self.push_screen(BridgeScreen())
