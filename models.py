@@ -77,6 +77,8 @@ class PlayerShip:
     def __init__(self, name="Endeavour", hull=100):
         self.name = name
         self.hull = hull
+        self.max_hull = hull
+        self.shield_hp = 30
         self.fuel = 80
         self.credits = 1000
         self.radiation_shield = False
@@ -94,10 +96,55 @@ class PlayerShip:
         self.compartments["sensor"]["modules"].append(ShipModule("long_range_scanner"))
         # Crew posts
         self.crew = {"Pilot": None, "Engineer": None, "Tactical": None, "Scientist": None}
+        self._last_damaged_module = None
 
     def take_damage(self, amount):
-        self.hull = max(0, self.hull - amount)
+        """Deal damage: shields absorb first, remainder to hull. Returns True if alive."""
+        if self.shield_hp > 0:
+            absorbed = min(self.shield_hp, amount)
+            self.shield_hp -= absorbed
+            amount -= absorbed
+        if amount > 0:
+            self.hull = max(0, self.hull - amount)
+            self._damage_random_module()
         return self.hull > 0
+
+    def _damage_random_module(self):
+        """Chance to damage a random active module when hull is hit."""
+        import random
+        if random.random() > 0.3:
+            return
+        candidates = [
+            m for c in COMPARTMENTS
+            for m in self.compartments[c]["modules"]
+            if m.active and not m.is_broken()
+        ]
+        if candidates:
+            m = random.choice(candidates)
+            m.durability = max(0, m.durability - random.randint(5, 15))
+            if m.is_broken():
+                from game_logger import GameLogger
+                # Signal back through a hook — store in the ship for the app to log
+                self._last_damaged_module = m
+
+    def regen_shields(self):
+        cap = self.get_effective_stats().get("shield_cap", 0)
+        rate = self.get_effective_stats().get("shield_regen", 0)
+        self.shield_hp = min(cap, self.shield_hp + rate)
+
+    def repair_module(self, comp_name, cost_metal=2, cost_electronics=1):
+        """Repair the most damaged module in a compartment. Returns (msg, cost)."""
+        if comp_name not in self.compartments:
+            return f"Unknown compartment '{comp_name}'.", 0
+        mods = self.compartments[comp_name]["modules"]
+        damaged = [m for m in mods if m.durability < m.max_durability]
+        if not damaged:
+            return f"No damaged modules in {comp_name}.", 0
+        m = max(damaged, key=lambda x: x.max_durability - x.durability)
+        repair_amount = min(20, m.max_durability - m.durability)
+        m.durability += repair_amount
+        status = "repaired" if not m.is_broken() else "partially repaired"
+        return f"{m.name} {status} (+{repair_amount} dur).", cost_metal + cost_electronics
 
     def total_power_generated(self):
         return sum(
@@ -617,15 +664,19 @@ class Galaxy:
                 tx, ty, tt = min(targets, key=lambda c: max(abs(p.x - c[0]), abs(p.y - c[1])))
                 if max(abs(p.x - tx), abs(p.y - ty)) == 1:
                     if tt == "player":
-                        ps.take_damage(10)
-                        out.append(f"Pirate {p.name} attacks!")
-                        if ps.cargo.items:
-                            sid = random.choice(list(ps.cargo.items.keys()))
-                            sa = max(1, ps.cargo.has(sid) // 5)
-                            ps.cargo.remove(sid, sa)
-                            out.append(f"Stole {sa} {sid}!")
-                        if ps.hull <= 0:
-                            out.append("Destroyed.")
+                        evasion = ps.get_effective_stats().get("evasion", 0)
+                        if random.random() * 100 < evasion:
+                            out.append(f"Pirate {p.name} misses!")
+                        else:
+                            ps.take_damage(10)
+                            out.append(f"Pirate {p.name} attacks!")
+                            if ps.cargo.items:
+                                sid = random.choice(list(ps.cargo.items.keys()))
+                                sa = max(1, ps.cargo.has(sid) // 5)
+                                ps.cargo.remove(sid, sa)
+                                out.append(f"Stole {sa} {sid}!")
+                            if ps.hull <= 0:
+                                out.append("Destroyed.")
                     else:
                         for t2 in self.traders:
                             if t2.alive and t2.x == tx and t2.y == ty:

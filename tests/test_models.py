@@ -145,12 +145,30 @@ class TestPlayerShip:
 
     def test_take_damage_reduces_hull(self):
         s = PlayerShip("A", 100)
+        s.shield_hp = 0  # drain shields to test hull damage directly
         result = s.take_damage(30)
         assert s.hull == 70
         assert result is True
 
+    def test_take_damage_shields_absorb(self):
+        s = PlayerShip("A", 100)
+        s.shield_hp = 30
+        result = s.take_damage(20)
+        assert s.shield_hp == 10  # 30 - 20
+        assert s.hull == 100  # hull untouched
+        assert result is True
+
+    def test_take_damage_shields_partial(self):
+        s = PlayerShip("A", 100)
+        s.shield_hp = 10
+        result = s.take_damage(30)
+        assert s.shield_hp == 0  # depleted
+        assert s.hull == 80  # 100 - 20 remaining
+        assert result is True
+
     def test_take_damage_lethal(self):
         s = PlayerShip("A", 20)
+        s.shield_hp = 0
         result = s.take_damage(30)
         assert s.hull == 0
         assert result is False
@@ -204,6 +222,53 @@ class TestPlayerShip:
     def test_install_module_invalid(self):
         s = PlayerShip("A", 100)
         assert not s.install_module("nonexistent_module")
+
+    def test_regen_shields(self):
+        s = PlayerShip("A", 100)
+        s.shield_hp = 0
+        s.regen_shields()
+        assert s.shield_hp > 0  # should regen at least 2
+
+    def test_regen_shields_capped(self):
+        s = PlayerShip("A", 100)
+        cap = s.get_effective_stats().get("shield_cap", 30)
+        s.shield_hp = cap
+        s.regen_shields()
+        assert s.shield_hp == cap  # shouldn't exceed cap
+
+    def test_module_damage_on_hull_hit(self):
+        s = PlayerShip("A", 100)
+        s.shield_hp = 0
+        s._last_damaged_module = None
+        # Force many hits to trigger 30% module damage chance
+        damaged = False
+        for _ in range(50):
+            s.take_damage(5)
+            if s._last_damaged_module is not None:
+                damaged = True
+                break
+        assert damaged  # should trigger at least once in 50 hits
+
+    def test_repair_module(self):
+        s = PlayerShip("A", 100)
+        # Damage a module manually
+        m = s.compartments["engine"]["modules"][0]
+        m.durability = 10
+        msg, cost = s.repair_module("engine")
+        assert cost > 0
+        assert m.durability > 10  # repaired
+
+    def test_repair_module_unknown_compartment(self):
+        s = PlayerShip("A", 100)
+        msg, cost = s.repair_module("nonexistent")
+        assert cost == 0
+        assert "Unknown" in msg
+
+    def test_repair_module_no_damage(self):
+        s = PlayerShip("A", 100)
+        msg, cost = s.repair_module("sensor")
+        assert cost == 0
+        assert "No damaged" in msg
 
     def test_cargo_bonus_from_modules(self):
         s = PlayerShip("A", 100)
@@ -654,6 +719,7 @@ class TestGalaxy:
                     if (nx, ny) in g.objects:
                         continue
                     hull_before = ship.hull
+                    ship.shield_hp = 0
                     _, _, evs, over = g.tick(nx, ny, ship)
                     # Radiation should deal damage unless mutant with resistance
                     if ship.race != "mutant" and not ship.radiation_shield:

@@ -113,6 +113,7 @@ class GalaxyMapApp(App):
         self.state = GameState.RACE_SELECT
         self.galaxy = Galaxy()
         self.ship = PlayerShip("Endeavour", 100)
+        self.ship.shield_hp = self.ship.get_effective_stats().get("shield_cap", 30)
         self.logger.clear()
         self.death_cause = None
         self.interaction_actions = []
@@ -479,7 +480,9 @@ class GalaxyMapApp(App):
         self.query_one("#info-panel").update(
             f"({self.player_x},{self.player_y}) {desc}\n"
             f"{self.ship.name}[{rn}] Rel:{rl}  "
-            f"Hull:{self.ship.hull} Fuel:{self.ship.fuel} Cr:{self.ship.credits}\n"
+            f"Hull:{self.ship.hull}/{self.ship.max_hull + self.ship.get_effective_stats().get('hull_bonus', 0)} "
+            f"Sh:{self.ship.shield_hp}/{self.ship.get_effective_stats().get('shield_cap', 0)} "
+            f"Fuel:{self.ship.fuel} Cr:{self.ship.credits}\n"
             f"{cargo}  Val:{cval}cr\n"
             f"Rep:{rep}\n"
             f"Status:{sline}{econ}")
@@ -743,9 +746,18 @@ class GalaxyMapApp(App):
     def _act_fire_pirate(self):
         for p in self.galaxy.pirates:
             if p.alive and max(abs(p.x - self.player_x), abs(p.y - self.player_y)) <= 1:
-                dmg = self.ship.get_effective_stats().get("damage", 20)
+                stats = self.ship.get_effective_stats()
+                dmg = stats.get("damage", 20)
+                acc = stats.get("accuracy", 80)
+                if not self._roll_hit(acc, 5):
+                    self.logger.combat(f"Missed {p.name}!")
+                    return
+                shield_before = p.shield_hp if hasattr(p, 'shield_hp') else 0
                 p.take_damage(dmg)
-                self.logger.combat(f"Hit {p.name}! {p.hull}/{p.max_hull}")
+                if hasattr(p, 'shield_hp') and shield_before > 0 and p.shield_hp < shield_before:
+                    self.logger.combat(f"Hit {p.name}! Shield absorbed. {p.hull}/{p.max_hull}")
+                else:
+                    self.logger.combat(f"Hit {p.name}! {p.hull}/{p.max_hull}")
                 if not p.alive:
                     r = random.randint(50, 150)
                     self.ship.credits += r
@@ -755,6 +767,12 @@ class GalaxyMapApp(App):
                     self.logger.combat(f"{p.name} destroyed! +{r}cr")
                 return
         self.logger.system("No pirate.")
+
+    @staticmethod
+    def _roll_hit(accuracy, evasion):
+        """Roll for hit: accuracy minus evasion = hit chance (0-100)."""
+        chance = max(5, min(95, accuracy - evasion))
+        return random.random() * 100 < chance
 
     @staticmethod
     def _direction_name(dx, dy):
@@ -769,6 +787,7 @@ class GalaxyMapApp(App):
 
     def tick_world(self):
         self.logger.new_turn()
+        self.ship.regen_shields()
         nx, ny, evs, over = self.galaxy.tick(self.player_x, self.player_y, self.ship)
         self.player_x, self.player_y = nx, ny
         for ev in evs:
@@ -777,6 +796,11 @@ class GalaxyMapApp(App):
         self.galaxy.step_npc(self.player_x, self.player_y, self.ship, npc_ev)
         for ev in npc_ev:
             self._log_event(ev)
+        # Module damage notification
+        dm = self.ship._last_damaged_module
+        if dm:
+            self.logger.danger(f"{dm.name} damaged! dur:{dm.durability}/{dm.max_durability}")
+            self.ship._last_damaged_module = None
         pol_ev = []
         self._check_political_events(pol_ev)
         for ev in pol_ev:
@@ -796,13 +820,17 @@ class GalaxyMapApp(App):
         if self.state != GameState.PLAYING:
             return
         dn = self._direction_name(dx, dy)
-        nx, ny = self.player_x + dx, self.player_y + dy
-        if 0 <= nx < self.galaxy.width and 0 <= ny < self.galaxy.height:
+        speed = max(1, self.ship.get_effective_stats().get("speed", 1))
+        moved = 0
+        for _ in range(speed):
+            nx, ny = self.player_x + dx, self.player_y + dy
+            if not (0 <= nx < self.galaxy.width and 0 <= ny < self.galaxy.height):
+                break
             tt = self.galaxy.get_tile(nx, ny)
             if not self.galaxy.is_passable(nx, ny):
-                self.logger.blocked(dn, self.galaxy.get_object_info(nx, ny))
-                self.update_info()
-                return
+                if moved == 0:
+                    self.logger.blocked(dn, self.galaxy.get_object_info(nx, ny))
+                break
             if tt == TILE_WORMHOLE:
                 if len(self.galaxy.wormholes) > 1:
                     o = (nx, ny)
@@ -816,6 +844,8 @@ class GalaxyMapApp(App):
                     self.galaxy.objects.pop((nx, ny), None)
                     self.galaxy.wormholes = [w for w in self.galaxy.wormholes if w != (nx, ny)]
             self.player_x, self.player_y = nx, ny
+            moved += 1
+        if moved > 0:
             self.ship.fuel = max(0, self.ship.fuel - 1)
             self.logger.movement(dn, self.player_x, self.player_y)
             self.tick_world()
@@ -989,6 +1019,27 @@ class GalaxyMapApp(App):
                         f"  [{sts}] {m.name} ({c2}) "
                         f"dur:{m.durability}/{m.max_durability} pow:{m.energy_consumption}")
 
+        elif c == "modules" and len(p) >= 3 and p[1] == "repair":
+            comp = p[2]
+            st = self.galaxy.get_nearest_station(self.player_x, self.player_y, 1)
+            if not st:
+                self.logger.system("Must be at a station to repair."); return
+            msg, cost = self.ship.repair_module(comp)
+            if cost == 0:
+                self.logger.system(msg); return
+            if self.ship.credits < cost * 10:
+                self.logger.system(f"Need {cost * 10}cr for repair."); return
+            if self.ship.cargo.has("metal") < 2 or self.ship.cargo.has("electronics") < 1:
+                self.logger.system("Need metal (2) + electronics (1) for repair."); return
+            self.ship.credits -= cost * 10
+            self.ship.cargo.remove("metal", 2)
+            self.ship.cargo.remove("electronics", 1)
+            msg, _ = self.ship.repair_module(comp)
+            self.logger.system(msg)
+
+        elif c == "modules":
+            self.logger.system("modules list | modules repair <comp>")
+
         elif c == "cargo":
             if len(p) >= 2 and p[1] == "jettison":
                 rid = p[2] if len(p) >= 3 else ""
@@ -1087,7 +1138,12 @@ class GalaxyMapApp(App):
             if not npc or not npc.alive or max(abs(npc.x - self.player_x),
                                                 abs(npc.y - self.player_y)) > 1:
                 self.logger.system(f"No '{name}' nearby."); return
-            npc.take_damage(self.ship.get_effective_stats().get("damage", 25))
+            stats = self.ship.get_effective_stats()
+            dmg = stats.get("damage", 25)
+            acc = stats.get("accuracy", 70)
+            if not self._roll_hit(acc, 5):
+                self.logger.combat(f"Missed {npc.name}!"); return
+            npc.take_damage(dmg)
             self.logger.combat(f"Hit {npc.name}! {npc.hull}/{npc.max_hull}")
             if npc.faction in self.ship.reputation:
                 self.ship.reputation[npc.faction] = max(
