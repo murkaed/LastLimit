@@ -528,17 +528,17 @@ class GalaxyMapApp(App):
             for s in g.stations:
                 if s.faction == t:
                     s.crisis_ticks = 10
-            g.add_news(f"Plague at {t}!"); out.append(f"[EVENT] Plague at {t}!")
+            g.add_news(f"Plague at {t}!", f"Afflicted {t} stations."); out.append(f"[EVENT] Plague at {t}!")
         elif et == "scandal":
             f1, f2 = random.sample(list(FACTIONS), 2)
             if f2 in g.diplomacy.get(f1, {}):
                 g.diplomacy[f1][f2] = "war"
-            g.add_news("Scandal!"); out.append("[EVENT] Scandal!")
+            g.add_news("Scandal!", f"{f1} vs {f2} at war!"); out.append("[EVENT] Scandal!")
         elif et == "treaty":
             f1, f2 = random.sample(list(FACTIONS), 2)
             if f2 in g.diplomacy.get(f1, {}):
                 g.diplomacy[f1][f2] = "truce"
-            g.add_news("Treaty!"); out.append("[EVENT] Treaty!")
+            g.add_news("Treaty!", f"{f1} and {f2} sign truce."); out.append("[EVENT] Treaty!")
 
     def _check_random_events(self, out):
         if random.random() > 0.03:
