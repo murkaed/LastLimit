@@ -18,6 +18,7 @@ from config import (
     TILE_CURSOR, TILE_TRADER, TILE_PIRATE, DIR_LABELS,
 )
 from models import PlayerShip, Galaxy, TraderShip, PirateShip, CargoHold, NPCShip
+import models
 from ui import (
     CommandScreen, CargoScreen, TradeScreen,
     BridgeScreen, EngineeringScreen, CrewScreen,
@@ -108,7 +109,7 @@ class GalaxyMapApp(App):
     # -----------------------------------------------------------------------
 
     def restart_game(self):
-        NPCShip._id_counter = 0 if hasattr(NPCShip, '_id_counter') else None
+        models.NPCShip_id_counter = 0
         self.state = GameState.RACE_SELECT
         self.galaxy = Galaxy()
         self.ship = PlayerShip("Endeavour", 100)
@@ -340,7 +341,7 @@ class GalaxyMapApp(App):
     # Info panel & helpers
     # -----------------------------------------------------------------------
 
-    def _scan_nearby(self, radius=7):
+    def _scan_nearby(self):
         radius = int(self.ship.get_effective_stats().get("sensor_range", 7))
         found = []
         for dy in range(-radius, radius + 1):
@@ -650,8 +651,9 @@ class GalaxyMapApp(App):
     def _act_repair(self):
         if self.ship.credits >= 30:
             self.ship.credits -= 30
+            max_hull = 100 + self.ship.get_effective_stats().get("hull_bonus", 0)
             o = self.ship.hull
-            self.ship.hull = min(100, self.ship.hull + 15)
+            self.ship.hull = min(max_hull, self.ship.hull + 15)
             self.logger.trade(f"Hull +{self.ship.hull - o}.")
         else:
             self.logger.system("Need 30cr.")
@@ -692,7 +694,7 @@ class GalaxyMapApp(App):
         if delta > 0:
             self.ship.credits += delta
         elif delta < 0:
-            self.ship.hull = max(0, self.ship.hull + delta)
+            self.ship.take_damage(-delta)
         if cid and not self.ship.cargo.add(cid, 2):
             msg += " (full)"
         self.logger.exploration(f"Landed. {msg}")
@@ -721,7 +723,10 @@ class GalaxyMapApp(App):
             self.logger.new_turn()
         else:
             self.logger.exploration("Collapse!")
-            self.galaxy.tiles[self.player_y][self.player_x] = TILE_EMPTY
+            px, py = self.player_x, self.player_y
+            self.galaxy.tiles[py][px] = TILE_EMPTY
+            self.galaxy.objects.pop((px, py), None)
+            self.galaxy.wormholes = [w for w in self.galaxy.wormholes if w != (px, py)]
 
     def _act_hail_npc(self):
         for t in self.galaxy.traders:
@@ -738,7 +743,8 @@ class GalaxyMapApp(App):
     def _act_fire_pirate(self):
         for p in self.galaxy.pirates:
             if p.alive and max(abs(p.x - self.player_x), abs(p.y - self.player_y)) <= 1:
-                p.take_damage(20)
+                dmg = self.ship.get_effective_stats().get("damage", 20)
+                p.take_damage(dmg)
                 self.logger.combat(f"Hit {p.name}! {p.hull}/{p.max_hull}")
                 if not p.alive:
                     r = random.randint(50, 150)
@@ -806,10 +812,12 @@ class GalaxyMapApp(App):
                     self.logger.exploration("Teleported!")
                 else:
                     self.logger.exploration("Collapse.")
+                    self.galaxy.tiles[ny][nx] = TILE_EMPTY
+                    self.galaxy.objects.pop((nx, ny), None)
+                    self.galaxy.wormholes = [w for w in self.galaxy.wormholes if w != (nx, ny)]
             self.player_x, self.player_y = nx, ny
             self.ship.fuel = max(0, self.ship.fuel - 1)
             self.logger.movement(dn, self.player_x, self.player_y)
-            self.logger.new_turn()
             self.tick_world()
         self.update_map()
         self.update_info()
@@ -1079,7 +1087,7 @@ class GalaxyMapApp(App):
             if not npc or not npc.alive or max(abs(npc.x - self.player_x),
                                                 abs(npc.y - self.player_y)) > 1:
                 self.logger.system(f"No '{name}' nearby."); return
-            npc.take_damage(25)
+            npc.take_damage(self.ship.get_effective_stats().get("damage", 25))
             self.logger.combat(f"Hit {npc.name}! {npc.hull}/{npc.max_hull}")
             if npc.faction in self.ship.reputation:
                 self.ship.reputation[npc.faction] = max(
@@ -1177,11 +1185,11 @@ class GalaxyMapApp(App):
         if event.key == "escape":
             self.state = GameState.PAUSED
             self.update_map(); self.update_info()
-        elif self._interaction_active and len(event.key) == 1 and event.key.isalnum():
+        elif self._interaction_active:
             if event.key == "escape":
                 self._interaction_active = False
                 self.update_map(); self.update_info()
-            else:
+            elif len(event.key) == 1 and event.key.isalnum():
                 for k, _, hn, _ in self.interaction_actions:
                     if event.key == k:
                         self._interaction_active = False

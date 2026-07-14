@@ -358,7 +358,7 @@ class Galaxy:
     def __init__(self, width=WIDTH, height=HEIGHT, seed=None):
         self.width = width
         self.height = height
-        self.seed = seed if seed else random.randint(0, 999999)
+        self.seed = seed if seed is not None else random.randint(0, 999999)
         random.seed(self.seed)
 
         self.tiles = [[TILE_EMPTY for _ in range(width)] for _ in range(height)]
