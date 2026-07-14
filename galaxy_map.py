@@ -188,6 +188,7 @@ class GalaxyMapApp(App):
             "  ┃    F1 = Bridge (ship status, modules)           ┃",
             "  ┃    F2 = Engineering (power distribution)        ┃",
             "  ┃    F3 = Tactical (weapons, targets, fire)       ┃",
+            "  ┃    F4 = Cargo inventory                          ┃",
             "  ┃    F5 = Crew (assign crew to stations)          ┃",
             "  ┃                                                 ┃",
             "  ┃  INTERFACE:                                     ┃",
@@ -1325,6 +1326,8 @@ class GalaxyMapApp(App):
 
         # --- PLAYING ---
         if event.key == "escape":
+            if len(self.screen_stack) > 1:
+                return  # let the pushed screen handle it
             self.state = GameState.PAUSED
             self.update_map(); self.update_info()
         elif self._interaction_active:
@@ -1398,6 +1401,8 @@ class GalaxyMapApp(App):
             self.push_screen(EngineeringScreen())
         elif event.key in ("f3", "F3"):
             self.push_screen(TacticalScreen())
+        elif event.key in ("f4", "F4"):
+            self.push_screen(CargoScreen())
         elif event.key in ("f5", "F5"):
             self.push_screen(CrewScreen())
         elif event.key == " ":
