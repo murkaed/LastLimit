@@ -21,7 +21,7 @@ from models import PlayerShip, Galaxy, TraderShip, PirateShip, CargoHold, NPCShi
 import models
 from ui import (
     CommandScreen, CargoScreen, TradeScreen,
-    BridgeScreen, EngineeringScreen, CrewScreen,
+    BridgeScreen, EngineeringScreen, TacticalScreen, CrewScreen,
 )
 
 # ---------------------------------------------------------------------------
@@ -50,10 +50,10 @@ class GalaxyMapApp(App):
     CommandScreen Input { dock: bottom; margin: 1 2; }
     CargoScreen DataTable { height: 1fr; }
     TradeScreen Input { dock: bottom; margin: 1 2; }
-    BridgeScreen Static, EngineeringScreen Static, CrewScreen Static {
+    BridgeScreen Static, EngineeringScreen Static, TacticalScreen Static, CrewScreen Static {
         border: solid $primary; margin: 1; padding: 0 1;
     }
-    EngineeringScreen Input, CrewScreen Input { dock: bottom; margin: 1 2; }
+    EngineeringScreen Input, TacticalScreen Input, CrewScreen Input { dock: bottom; margin: 1 2; }
     """
 
     player_x = reactive(WIDTH // 2)
@@ -179,6 +179,7 @@ class GalaxyMapApp(App):
             "  ┃  SHIP MANAGEMENT:                               ┃",
             "  ┃    F1 = Bridge (ship status, modules)           ┃",
             "  ┃    F2 = Engineering (power distribution)        ┃",
+            "  ┃    F3 = Tactical (weapons, targets, fire)       ┃",
             "  ┃    F5 = Crew (assign crew to stations)          ┃",
             "  ┃                                                 ┃",
             "  ┃  INTERFACE:                                     ┃",
@@ -1158,6 +1159,27 @@ class GalaxyMapApp(App):
         elif c == "hail":
             self._act_hail_npc()
 
+        elif c == "targets":
+            g = self.galaxy
+            targets = []
+            for p in g.pirates:
+                if p.alive:
+                    d = max(abs(p.x - self.player_x), abs(p.y - self.player_y))
+                    targets.append((d, f"Pirate {p.name}", p, "P"))
+            for t in g.traders:
+                if t.alive:
+                    d = max(abs(t.x - self.player_x), abs(t.y - self.player_y))
+                    targets.append((d, f"Trader {t.name}", t, "T"))
+            targets.sort(key=lambda x: x[0])
+            if not targets:
+                self.logger.system("No targets in range.")
+            else:
+                self.logger.system("── Targets ──")
+                for i, (d, label, npc, tag) in enumerate(targets, 1):
+                    sh = f" sh:{npc.shield_hp}" if hasattr(npc, 'shield_hp') and npc.shield_hp > 0 else ""
+                    self.logger.system(
+                        f"  [{i}] {label} hull:{npc.hull}/{npc.max_hull}{sh} dist:{d} [{tag}]")
+
         elif c == "missions":
             if self.galaxy.events_queue:
                 self.logger.system("Active events.")
@@ -1307,6 +1329,8 @@ class GalaxyMapApp(App):
             self.push_screen(BridgeScreen())
         elif event.key in ("f2", "F2"):
             self.push_screen(EngineeringScreen())
+        elif event.key in ("f3", "F3"):
+            self.push_screen(TacticalScreen())
         elif event.key in ("f5", "F5"):
             self.push_screen(CrewScreen())
         elif event.key == " ":

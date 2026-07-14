@@ -217,6 +217,115 @@ class EngineeringScreen(Screen):
         self.on_mount()
 
 # ---------------------------------------------------------------------------
+# Tactical (F3)
+# ---------------------------------------------------------------------------
+
+class TacticalScreen(Screen):
+    def compose(self):
+        yield Static(id="tac-title")
+        yield Static(id="tac-weapons")
+        yield Static(id="tac-targets")
+        yield Static(id="tac-self")
+        yield Input(placeholder="fire [num] or close", id="tac-input")
+
+    def on_mount(self):
+        app = self.app
+        if not hasattr(app, "ship"):
+            return
+        s = app.ship
+        stats = s.get_effective_stats()
+
+        self.query_one("#tac-title").update("┏━ TACTICAL ━━━━━━━━━━━━━━━━━━━━━━━━━━━┓")
+
+        # Weapons
+        weapons = [m for m in s.compartments["weapon"]["modules"] if m.active and not m.is_broken()]
+        wlines = ["── Weapons ──"]
+        if weapons:
+            for i, w in enumerate(weapons, 1):
+                wlines.append(f"  [{i}] {w.name}  dmg:{w.stats.get('damage',0)} "
+                              f"acc:{w.stats.get('accuracy',0)}%  "
+                              f"pow:{w.energy_consumption}  dur:{w.durability}/{w.max_durability}")
+        else:
+            wlines.append("  (no weapons installed)")
+        wlines.append(f"  Effective: dmg={stats['damage']} acc={stats['accuracy']}%")
+        self.query_one("#tac-weapons").update("\n".join(wlines))
+
+        # Targets
+        g = app.galaxy
+        targets = []
+        for p in g.pirates:
+            if p.alive:
+                d = max(abs(p.x - app.player_x), abs(p.y - app.player_y))
+                if d <= app.ship.get_effective_stats().get("sensor_range", 7):
+                    targets.append((d, f"Pirate {p.name}", p, "P"))
+        for t in g.traders:
+            if t.alive:
+                d = max(abs(t.x - app.player_x), abs(t.y - app.player_y))
+                if d <= app.ship.get_effective_stats().get("sensor_range", 7):
+                    targets.append((d, f"Trader {t.name}", t, "T"))
+        targets.sort(key=lambda x: x[0])
+        tlines = ["── Targets ──"]
+        if targets:
+            for i, (d, label, npc, tag) in enumerate(targets, 1):
+                sh = f" sh:{npc.shield_hp}" if hasattr(npc, 'shield_hp') and npc.shield_hp > 0 else ""
+                tlines.append(f"  [{i}] {label:<20} hull:{npc.hull}/{npc.max_hull}{sh}  "
+                              f"dist:{d}  [{tag}]")
+        else:
+            tlines.append("  (no targets in range)")
+        self.query_one("#tac-targets").update("\n".join(tlines))
+
+        # Self status
+        self_lines = [
+            "── Your Ship ──",
+            f"  Hull: {s.hull}/{s.max_hull + stats.get('hull_bonus', 0)}  "
+            f"Shields: {s.shield_hp}/{stats.get('shield_cap', 0)}",
+            f"  Fuel: {s.fuel}  Credits: {s.credits}",
+        ]
+        self.query_one("#tac-self").update("\n".join(self_lines))
+
+    def on_key(self, event):
+        if event.key == "escape":
+            self.dismiss()
+
+    def on_input_submitted(self, event):
+        app = self.app
+        if not hasattr(app, "process_command"):
+            return
+        v = event.value.strip().lower()
+        if v in ("close", "exit"):
+            self.dismiss()
+            return
+        parts = v.split()
+        if parts and parts[0] == "fire":
+            g = app.galaxy
+            targets = []
+            for p in g.pirates:
+                if p.alive:
+                    d = max(abs(p.x - app.player_x), abs(p.y - app.player_y))
+                    if d <= app.ship.get_effective_stats().get("sensor_range", 7):
+                        targets.append((d, p.name, p))
+            for t in g.traders:
+                if t.alive:
+                    d = max(abs(t.x - app.player_x), abs(t.y - app.player_y))
+                    if d <= app.ship.get_effective_stats().get("sensor_range", 7):
+                        targets.append((d, t.name, t))
+            targets.sort(key=lambda x: x[0])
+
+            if len(parts) >= 2:
+                try:
+                    idx = int(parts[1]) - 1
+                except ValueError:
+                    return
+                if 0 <= idx < len(targets):
+                    _, name, npc = targets[idx]
+                    app.process_command(f"attack {name}")
+            self.dismiss()
+        else:
+            app.process_command(v)
+            self.dismiss()
+
+
+# ---------------------------------------------------------------------------
 # Crew (F5)
 # ---------------------------------------------------------------------------
 

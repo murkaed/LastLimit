@@ -21,6 +21,7 @@ class TestImports:
     def test_ui(self):
         import ui
         assert hasattr(ui, "BridgeScreen")
+        assert hasattr(ui, "TacticalScreen")
 
     def test_galaxy_map(self):
         import galaxy_map

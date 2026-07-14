@@ -276,6 +276,7 @@ class TestNPCShip:
         assert n.x == 10
         assert n.y == 20
         assert n.hull == 50
+        assert n.shield_hp == 0
         assert n.alive
 
     def test_unique_ids(self):
@@ -287,6 +288,20 @@ class TestNPCShip:
         n = NPCShip(0, 0, "X", 40, "free_traders")
         assert n.take_damage(15)
         assert n.hull == 25
+
+    def test_take_damage_with_shields(self):
+        n = NPCShip(0, 0, "X", 40, "free_traders")
+        n.shield_hp = 10
+        assert n.take_damage(15)
+        assert n.shield_hp == 0
+        assert n.hull == 35  # 40 - (15 - 10)
+
+    def test_take_damage_shields_absorb_all(self):
+        n = NPCShip(0, 0, "X", 40, "free_traders")
+        n.shield_hp = 20
+        assert n.take_damage(10)
+        assert n.shield_hp == 10
+        assert n.hull == 40  # untouched
 
     def test_take_damage_lethal(self):
         n = NPCShip(0, 0, "X", 30, "free_traders")
@@ -301,6 +316,7 @@ class TestTraderShip:
     def test_create(self):
         t = TraderShip(5, 5, [0, 1])
         assert t.hull == 60
+        assert t.shield_hp == 20
         assert t.cargo.capacity == 100
         assert t.cargo.has("fuel_cell") >= 20
 
@@ -324,6 +340,7 @@ class TestPirateShip:
     def test_create(self):
         p = PirateShip(5, 5)
         assert p.hull == 40
+        assert p.shield_hp == 10
         assert p.faction in ("chaos_cult", "xenos_horde")
         assert p.aggro_range == 5
 

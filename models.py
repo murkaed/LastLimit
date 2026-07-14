@@ -198,6 +198,7 @@ class NPCShip:
         self.name = name
         self.hull = hull
         self.max_hull = hull
+        self.shield_hp = 0
         self.faction = faction
         self.race = race or random.choice(list(RACES))
         self.cargo = CargoHold(cc)
@@ -205,7 +206,12 @@ class NPCShip:
         self.alive = True
 
     def take_damage(self, amount):
-        self.hull = max(0, self.hull - amount)
+        if self.shield_hp > 0:
+            absorbed = min(self.shield_hp, amount)
+            self.shield_hp -= absorbed
+            amount -= absorbed
+        if amount > 0:
+            self.hull = max(0, self.hull - amount)
         if self.hull <= 0:
             self.alive = False
         return self.alive
@@ -216,6 +222,7 @@ class TraderShip(NPCShip):
         name = random.choice(self.NAMES) + str(random.randint(1, 99))
         faction = random.choice(["free_traders", "imperium", "machine_collective"])
         super().__init__(x, y, name, 60, faction, None, 100)
+        self.shield_hp = 20
         self.route = route
         self.route_index = 0
         self.cargo.add("fuel_cell", 20)
@@ -238,6 +245,7 @@ class PirateShip(NPCShip):
         name = random.choice(self.NAMES) + str(random.randint(1, 99))
         faction = random.choice(["chaos_cult", "xenos_horde"])
         super().__init__(x, y, name, 40, faction, None, 30)
+        self.shield_hp = 10
         self.credits = random.randint(50, 150)
         self.aggro_range = 5
         self.flee_threshold = 8
