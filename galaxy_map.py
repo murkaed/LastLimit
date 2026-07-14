@@ -571,7 +571,7 @@ class GalaxyMapApp(App):
                 out.append("Supernova! Hull -10.")
                 if self.ship.hull <= 0:
                     self.death_cause = "Supernova."
-            g.add_news("Supernova!"); out.append("[EVENT] Supernova!")
+            g.add_news("Supernova!", "Star exploded!"); out.append("[EVENT] Supernova!")
         elif et == "crisis":
             g.global_crisis_ticks = 10
             g.add_news("Crisis!", "Prices -30%."); out.append("[EVENT] Crisis!")
@@ -799,7 +799,10 @@ class GalaxyMapApp(App):
         # Module damage notification
         dm = self.ship._last_damaged_module
         if dm:
-            self.logger.danger(f"{dm.name} damaged! dur:{dm.durability}/{dm.max_durability}")
+            if dm.is_broken():
+                self.logger.danger(f"{dm.name} BROKEN! dur:0/{dm.max_durability}")
+            else:
+                self.logger.danger(f"{dm.name} damaged! dur:{dm.durability}/{dm.max_durability}")
             self.ship._last_damaged_module = None
         pol_ev = []
         self._check_political_events(pol_ev)
@@ -1129,7 +1132,7 @@ class GalaxyMapApp(App):
                 if f != t and t in self.galaxy.diplomacy.get(f, {}):
                     self.galaxy.diplomacy[f][t] = "war"
             self.ship.reputation[t] = max(-100, self.ship.reputation.get(t, 0) - 20)
-            self.galaxy.add_news(f"War on {t}!")
+            self.galaxy.add_news(f"War on {t}!", f"Player declared war on {t}.")
             self.logger.system(f"War on {t}!")
 
         elif c == "attack" and len(p) >= 2:

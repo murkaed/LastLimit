@@ -122,10 +122,7 @@ class PlayerShip:
         if candidates:
             m = random.choice(candidates)
             m.durability = max(0, m.durability - random.randint(5, 15))
-            if m.is_broken():
-                from game_logger import GameLogger
-                # Signal back through a hook — store in the ship for the app to log
-                self._last_damaged_module = m
+            self._last_damaged_module = m
 
     def regen_shields(self):
         cap = self.get_effective_stats().get("shield_cap", 0)
@@ -162,7 +159,7 @@ class PlayerShip:
 
     def get_effective_stats(self):
         stats = {
-            "speed": 1, "evasion": 0, "damage": 0, "accuracy": 0,
+            "speed": 0, "evasion": 0, "damage": 0, "accuracy": 0,
             "shield_cap": 0, "shield_regen": 0, "sensor_range": 7,
             "cargo_bonus": 0, "crew_efficiency": 0, "hull_bonus": 0,
         }

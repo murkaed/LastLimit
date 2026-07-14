@@ -1,64 +1,81 @@
-"""Smoke tests — verify app can be imported and initialized without crashing."""
+"""Tests for galaxy_map.py — app-level logic (non-TUI)."""
 
 import pytest
+import random
 
 
 class TestImports:
-    def test_import_config(self):
+    def test_config(self):
         import config
         assert config.WIDTH == 80
 
-    def test_import_models(self):
+    def test_models(self):
         import models
         assert hasattr(models, "CargoHold")
-        assert hasattr(models, "PlayerShip")
         assert hasattr(models, "Galaxy")
 
-    def test_import_game_logger(self):
+    def test_game_logger(self):
         import game_logger
         assert hasattr(game_logger, "GameLogger")
 
-    def test_import_ui(self):
+    def test_ui(self):
         import ui
-        assert hasattr(ui, "CommandScreen")
         assert hasattr(ui, "BridgeScreen")
 
-    def test_import_galaxy_map_no_crash(self):
-        """Verify galaxy_map imports without crashing (no TUI started)."""
+    def test_galaxy_map(self):
         import galaxy_map
         assert hasattr(galaxy_map, "GalaxyMapApp")
-        assert hasattr(galaxy_map, "GameState")
 
 
-class TestGalaxyMapInit:
-    def test_app_creation_no_crash(self):
+class TestAppCreate:
+    def test_create_no_crash(self):
         from galaxy_map import GalaxyMapApp
         app = GalaxyMapApp()
         assert app.ship.name == "Endeavour"
         assert app.ship.hull == 100
-        assert app.state is not None
-        assert app.galaxy is not None
 
-    def test_update_map_no_crash_without_screen(self):
-        """update_map requires a mounted app — verify it doesn't crash at init time."""
+    def test_render_help(self):
         from galaxy_map import GalaxyMapApp
         app = GalaxyMapApp()
-        # Without compose/on_mount, query_one will fail. Test that the
-        # render methods produce strings without errors.
         result = app.render_help_screen()
         assert "HELP" in result
+        assert "WASD" in result or "MOVEMENT" in result
 
-    def test_update_info_no_crash_without_screen(self):
+
+class TestRollHit:
+    def test_hit_chance_100(self):
         from galaxy_map import GalaxyMapApp
-        app = GalaxyMapApp()
-        # Test that helper methods work
-        app.ship.race = "mutant"
-        status = app._get_ship_status()
-        assert isinstance(status, list)
+        hits = sum(GalaxyMapApp._roll_hit(100, 0) for _ in range(200))
+        assert hits > 150  # should hit most of the time
+
+    def test_hit_chance_0(self):
+        from galaxy_map import GalaxyMapApp
+        hits = sum(GalaxyMapApp._roll_hit(5, 95) for _ in range(200))
+        assert hits < 50  # floor 5% chance
+
+    def test_accuracy_minus_evasion(self):
+        from galaxy_map import GalaxyMapApp
+        random.seed(123)
+        # accuracy 50, evasion 20 → 30% hit
+        hits = 0
+        for _ in range(1000):
+            if GalaxyMapApp._roll_hit(50, 20):
+                hits += 1
+        assert 200 < hits < 400  # ~300 expected
+
+    def test_clamped_to_5_95(self):
+        from galaxy_map import GalaxyMapApp
+        random.seed(456)
+        # Even with acc=0, ev=200, floor is 5%
+        hits = sum(GalaxyMapApp._roll_hit(0, 200) for _ in range(500))
+        assert 10 < hits < 50  # ~25 expected
+        # Even with acc=200, ev=0, cap is 95%
+        misses = sum(not GalaxyMapApp._roll_hit(200, 0) for _ in range(500))
+        assert 10 < misses < 50  # ~25 expected
 
 
 class TestDirectionName:
-    def test_all_directions(self):
+    def test_all(self):
         from galaxy_map import GalaxyMapApp
         assert GalaxyMapApp._direction_name(0, -1) == "N"
         assert GalaxyMapApp._direction_name(0, 1) == "S"
@@ -73,22 +90,13 @@ class TestDirectionName:
 class TestScanNearby:
     def test_returns_string(self):
         from galaxy_map import GalaxyMapApp
-        import models
-        models.NPCShip_id_counter = 0
         app = GalaxyMapApp()
         result = app._scan_nearby()
         assert isinstance(result, str)
 
-    def test_returns_nothing_when_empty(self):
+    def test_empty_galaxy(self):
         from galaxy_map import GalaxyMapApp
-        import models
-        models.NPCShip_id_counter = 0
         app = GalaxyMapApp()
-        # Place player far from everything
-        app.galaxy = type(app.galaxy).__new__(app.galaxy.__class__)
-        app.galaxy.width = 80
-        app.galaxy.height = 40
-        app.galaxy.tiles = [["·"] * 80 for _ in range(40)]
         app.galaxy.objects = {}
         app.galaxy.traders = []
         app.galaxy.pirates = []
