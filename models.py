@@ -272,12 +272,24 @@ class Station:
         self.crisis_ticks = 0
         self.price_history: dict[str, list] = {r: [] for r in RESOURCES}
         self.missions: list = []
+        self.modules_for_sale: list[str] = []
         self._init_inventory()
+        self._init_modules()
         self.update_prices()
 
     def _init_inventory(self):
         for r in RESOURCES:
             self.inventory[r] = random.randint(8, 25)
+
+    def _init_modules(self):
+        import random
+        from config import SHIP_MODULES
+        available = list(SHIP_MODULES)
+        # Exclude starter modules
+        starter = {"fusion_reactor", "ion_drive", "deflector_shield", "long_range_scanner"}
+        pool = [m for m in available if m not in starter]
+        count = random.randint(2, 5)
+        self.modules_for_sale = random.sample(pool, min(count, len(pool)))
 
     def update_prices(self):
         for rid, info in RESOURCES.items():

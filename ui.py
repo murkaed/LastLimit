@@ -326,6 +326,84 @@ class TacticalScreen(Screen):
 
 
 # ---------------------------------------------------------------------------
+# Module Shop
+# ---------------------------------------------------------------------------
+
+from config import SHIP_MODULES, COMPARTMENTS
+
+class ModuleShopScreen(Screen):
+    def __init__(self, station):
+        super().__init__()
+        self.station = station
+
+    def compose(self):
+        yield Static(id="shop-title")
+        yield Static(id="shop-list")
+        yield Static(id="shop-installed")
+        yield Input(placeholder="buy <num> or close", id="shop-input")
+
+    def on_mount(self):
+        app = self.app
+        st = self.station
+        s = app.ship
+
+        self.query_one("#shop-title").update(
+            f"┏━ MODULE SHOP ━━ {st.name}[{st.faction}] ━━ Cr:{s.credits} ━━━━━┓")
+
+        lines = ["── For Sale ──"]
+        for i, mid in enumerate(st.modules_for_sale, 1):
+            info = SHIP_MODULES.get(mid, {})
+            lines.append(
+                f"  [{i}] {info.get('name', mid):<20} "
+                f"comp:{info.get('comp','?'):<12} "
+                f"cost:{info.get('cost',0):>5}cr  "
+                f"pow:{info.get('energy',0)}"
+            )
+        self.query_one("#shop-list").update("\n".join(lines))
+
+        ilines = ["── Installed ──"]
+        for c in COMPARTMENTS:
+            for m in s.compartments[c]["modules"]:
+                sts = "ON" if m.active and not m.is_broken() else "BROKEN" if m.is_broken() else "ON"
+                ilines.append(f"  [{sts}] {m.name} ({c})")
+        self.query_one("#shop-installed").update("\n".join(ilines))
+
+    def on_key(self, event):
+        if event.key in ("escape", "q"):
+            self.dismiss()
+
+    def on_input_submitted(self, event):
+        app = self.app
+        st = self.station
+        s = app.ship
+        v = event.value.strip().lower()
+        if v in ("close", "exit", "quit"):
+            self.dismiss(); return
+        parts = v.split()
+        if parts and parts[0] == "buy" and len(parts) >= 2:
+            try:
+                idx = int(parts[1]) - 1
+            except ValueError:
+                return
+            if 0 <= idx < len(st.modules_for_sale):
+                mid = st.modules_for_sale[idx]
+                info = SHIP_MODULES.get(mid, {})
+                cost = info.get("cost", 0)
+                if s.credits < cost:
+                    app.logger.system(f"Need {cost}cr, have {s.credits}cr.")
+                elif s.install_module(mid):
+                    s.credits -= cost
+                    st.modules_for_sale.pop(idx)
+                    app.logger.system(f"Installed {info.get('name', mid)} for {cost}cr!")
+                else:
+                    app.logger.system(f"Can't install {mid}.")
+                self.dismiss()
+        else:
+            app.process_command(v)
+            self.dismiss()
+
+
+# ---------------------------------------------------------------------------
 # Crew (F5)
 # ---------------------------------------------------------------------------
 

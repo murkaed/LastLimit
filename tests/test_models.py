@@ -446,6 +446,12 @@ class TestStation:
         s = Station(0, 0, name="Hub", faction="free_traders")
         assert "Hub" in s.price_summary()
 
+    def test_modules_for_sale(self):
+        s = Station(0, 0, name="Hub", faction="free_traders")
+        assert len(s.modules_for_sale) >= 2
+        for mid in s.modules_for_sale:
+            assert mid in SHIP_MODULES
+
     def test_price_friend_discount(self):
         s = Station(0, 0, faction="imperium")
         ship = PlayerShip("T", 100)

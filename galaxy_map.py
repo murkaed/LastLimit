@@ -603,6 +603,8 @@ class GalaxyMapApp(App):
                 acts.append(("b", f"(B)uy/Sell {tag}", "_act_open_trade", f"Station {dn}"))
                 if st and st.stype == "temple" and self.ship.religion is None:
                     acts.append(("j", f"(J)oin {st.name}", "_act_join_religion", f"Temple {dn}"))
+                if st and st.modules_for_sale:
+                    acts.append(("p", f"Shop (P)arts [{len(st.modules_for_sale)} modules]", "_act_modules_shop", f"Station {dn}"))
             elif ot == "planet":
                 acts.append(("s", f"(S)can {ic} {nm}", "_act_scan_planet", f"{nm} {dn}"))
                 acts.append(("l", f"(L)and {ic}", "_act_land", f"{nm} {dn}"))
@@ -682,6 +684,14 @@ class GalaxyMapApp(App):
             self.logger.system(f"Joined {st.religion}!")
         else:
             self.logger.system("No doctrine.")
+
+    def _act_modules_shop(self):
+        st = self.galaxy.get_station_at(self.player_x, self.player_y)
+        if st and st.modules_for_sale:
+            from ui import ModuleShopScreen
+            self.push_screen(ModuleShopScreen(st))
+        else:
+            self.logger.system("No modules for sale.")
 
     def _act_scan_planet(self):
         self.logger.exploration(
