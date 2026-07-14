@@ -22,6 +22,7 @@ import models
 from ui import (
     CommandScreen, CargoScreen, TradeScreen,
     BridgeScreen, EngineeringScreen, TacticalScreen, CrewScreen,
+    ShipHubScreen, ModuleShopScreen, MissionScreen,
 )
 
 # ---------------------------------------------------------------------------
@@ -185,11 +186,8 @@ class GalaxyMapApp(App):
             "  ┃    B = open trade screen (at station)            ┃",
             "  ┃                                                 ┃",
             "  ┃  SHIP MANAGEMENT:                               ┃",
-            "  ┃    F1 = Bridge (ship status, modules)           ┃",
-            "  ┃    F2 = Engineering (power distribution)        ┃",
-            "  ┃    F3 = Tactical (weapons, targets, fire)       ┃",
-            "  ┃    F4 = Cargo inventory                          ┃",
-            "  ┃    F5 = Crew (assign crew to stations)          ┃",
+            "  ┃    F1 = Ship Hub (all management screens)      ┃",
+            "  ┃    F2-F5 = direct: Eng, Tac, Cargo, Crew     ┃",
             "  ┃                                                 ┃",
             "  ┃  INTERFACE:                                     ┃",
             "  ┃    H = help        N = news      ~ = console    ┃",
@@ -1396,7 +1394,7 @@ class GalaxyMapApp(App):
                 self.logger.system(f"No pirate in range ({rng}).")
             self.update_map(); self.update_info()
         elif event.key in ("f1", "F1"):
-            self.push_screen(BridgeScreen())
+            self.push_screen(ShipHubScreen())
         elif event.key in ("f2", "F2"):
             self.push_screen(EngineeringScreen())
         elif event.key in ("f3", "F3"):

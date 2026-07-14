@@ -20,6 +20,85 @@ def _box(title, lines, width=54):
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# Ship Hub (F1)
+# ═══════════════════════════════════════════════════════════════════════
+
+class ShipHubScreen(Screen):
+    """Unified ship management hub — press 1-5 or Esc."""
+
+    def compose(self):
+        yield Static(id="hub-content")
+
+    def on_mount(self):
+        app = self.app
+        if not hasattr(app, "ship"):
+            return
+        s = app.ship
+        st = s.get_effective_stats()
+        p_gen = s.total_power_generated()
+        p_con = s.total_power_consumed()
+        eff = 100 if p_con <= p_gen else max(30, int(p_gen / max(1, p_con) * 100))
+        mh = s.max_hull + st.get("hull_bonus", 0)
+        crew_n = sum(1 for v in s.crew.values() if v)
+        mission_n = len(s.missions)
+
+        # Compartment power summary
+        pw_parts = []
+        for c in COMPARTMENTS:
+            pw = s.compartments[c]["power"]
+            mods = s.compartments[c]["modules"]
+            if mods:
+                pw_parts.append(f"{c}={pw}")
+        pw_line = " ".join(pw_parts) if pw_parts else "all=5"
+
+        cargo_val = s.cargo.total_value()
+        cb = st.get("cargo_bonus", 0)
+
+        lines = [
+            f"┌─ SHIP ─ {s.name} ─ Cr:{s.credits} ──────────────────────┐",
+            f"│                                                │",
+            f"│  [1] BRIDGE       H:{s.hull}/{mh}  "
+            f"🛡{s.shield_hp}/{st['shield_cap']}  ⚡{p_gen}/{p_con} {eff}%  │",
+            f"│  [2] ENGINEERING  {pw_line:<30}    │",
+            f"│  [3] TACTICAL     ⚔{st['damage']} dmg  "
+            f"🎯{st['accuracy']}%  📏rng:{st.get('range',1)}  "
+            f"🛡ev:{st['evasion']}%     │",
+            f"│  [4] CARGO        {s.cargo.used()}/{s.cargo.capacity + cb} used  "
+            f"val:{cargo_val}cr         │",
+            f"│  [5] CREW         {crew_n}/4 assigned  "
+            f"missions:{mission_n}                 │",
+            f"│                                                │",
+            f"│  Press 1-5 or Esc to return                    │",
+            f"└────────────────────────────────────────────────┘",
+        ]
+        self.query_one("#hub-content").update("\n".join(lines))
+
+    def on_key(self, event):
+        if event.key == "escape":
+            self.dismiss()
+        elif event.key == "1":
+            self.dismiss()
+            if hasattr(self.app, "push_screen"):
+                self.app.push_screen(BridgeScreen())
+        elif event.key == "2":
+            self.dismiss()
+            if hasattr(self.app, "push_screen"):
+                self.app.push_screen(EngineeringScreen())
+        elif event.key == "3":
+            self.dismiss()
+            if hasattr(self.app, "push_screen"):
+                self.app.push_screen(TacticalScreen())
+        elif event.key == "4":
+            self.dismiss()
+            if hasattr(self.app, "push_screen"):
+                self.app.push_screen(CargoScreen())
+        elif event.key == "5":
+            self.dismiss()
+            if hasattr(self.app, "push_screen"):
+                self.app.push_screen(CrewScreen())
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # Command console
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -212,7 +291,7 @@ class BridgeScreen(Screen):
         self.query_one("#bridge-cargo").update("\n".join(clines))
 
         self.query_one("#bridge-footer").update(
-            "[F2] Eng  [F3] Tac  [F5] Crew  [Esc] Close"
+            "[Esc] Back  |  [F1] Hub  |  direct: F2 Eng  F3 Tac  F4 Cargo  F5 Crew"
         )
 
     def on_key(self, event):
