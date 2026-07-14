@@ -2,11 +2,7 @@
 
 from textual.screen import Screen
 from textual.widgets import Static, Input, DataTable, Footer
-from config import RESOURCES, COMPARTMENTS, SHIP_MODULES
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# Helper — consistent box drawing
+from config import RESOURCES, COMPARTMENTS, SHIP_MODULES, SHIP_HULLS, UPGRADES, RECIPES, CREW_SPECIALTIES
 # ═══════════════════════════════════════════════════════════════════════
 
 def _box(title, lines, width=54):
@@ -75,7 +71,7 @@ class ShipHubScreen(Screen):
 
     def on_key(self, event):
         if event.key == "escape":
-            self.dismiss()
+            event.stop(); self.dismiss()
         elif event.key == "1":
             self.dismiss()
             if hasattr(self.app, "push_screen"):
@@ -114,43 +110,182 @@ class CommandScreen(Screen):
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# Cargo inventory
+# Cargo Screen (from bridge)
 # ═══════════════════════════════════════════════════════════════════════
 
+CATEGORY_LABELS = {"raw": "Raw", "refined": "Refined", "advanced": "Adv", "special": "Special"}
+CATEGORY_ORDER = {"raw": 0, "refined": 1, "advanced": 2, "special": 3, "module": 4}
+
+
 class CargoScreen(Screen):
+    def __init__(self):
+        super().__init__()
+        self._filter = "all"
+        self._selected = 0
+
     def compose(self):
         yield Static(id="cargo-header")
-        yield DataTable(id="cargo-table")
+        yield Static(id="cargo-filters")
+        yield Static(id="cargo-table")
         yield Static(id="cargo-footer")
+        yield Input(placeholder="search: type item name  |  close", id="cargo-input")
 
     def on_mount(self):
-        app = self.app
-        if not hasattr(app, "ship"):
-            return
-        s = app.ship
-        c = s.cargo
-        cb = s.get_effective_stats().get("cargo_bonus", 0)
-        self.query_one("#cargo-header").update(
-            f"┌─ CARGO HOLD ──────────────────────────────┐\n"
-            f"│ {c.used()}/{c.capacity + cb} used  │  Value: {c.total_value()}cr                   │\n"
-            f"└────────────────────────────────────────────┘"
-        )
-        table = self.query_one("#cargo-table")
-        table.clear()
-        table.add_columns("Resource", "Category", "Qty", "Unit Price")
-        catmap = {"raw": "Raw", "refined": "Refined", "advanced": "Adv", "special": "Special"}
-        for rid, amt in sorted(c.items.items()):
-            info = RESOURCES.get(rid, {})
-            ct = catmap.get(info.get("cat", ""), "Other")
-            table.add_row(
-                info.get("name", rid), ct, str(amt),
-                f"{info.get('base_price', 0)}cr"
-            )
-        self.query_one("#cargo-footer").update("[Esc/Q] Close")
+        self._refresh()
 
+    # -- helpers --
+    def _item_cat(self, rid):
+        info = RESOURCES.get(rid, {})
+        if info: return info.get("cat", "unknown")
+        if rid in SHIP_MODULES: return "module"
+        return "unknown"
+
+    def _item_name(self, rid):
+        info = RESOURCES.get(rid, {})
+        if info: return info.get("name", rid)
+        info = SHIP_MODULES.get(rid, {})
+        if info: return info.get("name", rid)
+        return rid
+
+    def _item_price(self, rid):
+        info = RESOURCES.get(rid, {})
+        if info: return info.get("base_price", 0)
+        info = SHIP_MODULES.get(rid, {})
+        if info: return info.get("cost", 0)
+        return 0
+
+    def _item_icon(self, rid):
+        info = RESOURCES.get(rid, {})
+        if info:
+            return {"raw":"⛏","refined":"■","advanced":"◆","special":"★","consumable":"⚡"}.get(info.get("cat",""), "·")
+        return "◈"
+
+    def _filtered(self):
+        items = list(self.app.ship.cargo.items.items())
+        if self._filter == "all": return items
+        return [(r,a) for r,a in items if self._item_cat(r) == self._filter]
+
+    def _at_station(self):
+        app = self.app
+        return app.galaxy.get_station_at(app.player_x, app.player_y)
+
+    def _refresh(self):
+        app = self.app
+        if not hasattr(app,"ship"): return
+        s = app.ship; c = s.cargo
+        cb = s.get_effective_stats().get("cargo_bonus", 0)
+        items = self._filtered()
+        items.sort(key=lambda x: (CATEGORY_ORDER.get(self._item_cat(x[0]), 99), self._item_name(x[0])))
+        self._selected = min(self._selected, max(0, len(items)-1))
+        st = self._at_station()
+
+        # Header
+        self.query_one("#cargo-header").update(
+            "┌────────────────────────────────────────────────────────────────┐\n"
+            f"│  CARGO HOLD: {c.used():>3}/{c.capacity+cb:<3} used  |  Value: {c.total_value():>5}cr  |  Credits: {s.credits}cr{'':>20}│\n"
+            "└────────────────────────────────────────────────────────────────┘"
+        )
+
+        # Filters
+        fnames = [("all","All"),("raw","Raw"),("refined","Refined"),
+                  ("advanced","Adv"),("special","Special"),("module","Mods")]
+        fline = "│  "
+        for key,label in fnames:
+            fline += f"[{label}] " if self._filter == key else f" {label}  "
+        fline = fline.rstrip() + "            │"
+        self.query_one("#cargo-filters").update(
+            "┌────────────────────────────────────────────────────────────────┐\n" + fline + "\n└────────────────────────────────────────────────────────────────┘"
+        )
+
+        # Table
+        lines = ["┌────────────────────────────────────────────────────────────────┐",
+                 f"│ {'':>2} {'Item':<18} {'Category':<10} {'Qty':>4} {'Price':>7} {'Total':>7} │",
+                 "├────────────────────────────────────────────────────────────────┤"]
+        if not items:
+            lines.append("│  (no items matching filter)                              │")
+        else:
+            for i,(rid,amt) in enumerate(items):
+                sel = "▶" if i == self._selected else " "
+                icon = self._item_icon(rid)
+                name = self._item_name(rid)
+                cat = self._item_cat(rid)
+                cl = CATEGORY_LABELS.get(cat, SHIP_MODULES.get(rid,{}).get("comp","Mod") if cat=="module" else cat)
+                price = self._item_price(rid)
+                total = price*amt
+                lines.append(f"│{sel}{icon} {name:<18} {cl:<10} {amt:>4} {price:>5}cr {total:>5}cr│")
+        lines.append("└────────────────────────────────────────────────────────────────┘")
+        self.query_one("#cargo-table").update("\n".join(lines))
+
+        # Footer
+        f = "┌────────────────────────────────────────────────────────────────┐\n"
+        f += f"│  [Enter] Use Item  [Delete] Jettison"
+        if st: f += "  [S] Sell Raw"
+        f += f"{'':>24}│\n"
+        f += "│  [1-6] Filter  [↑↓] Select{'':>38}│\n"
+        f += "└────────────────────────────────────────────────────────────────┘"
+        self.query_one("#cargo-footer").update(f)
+
+    # -- actions --
+    def _use_item(self):
+        items = self._filtered()
+        if not items or self._selected >= len(items): return
+        rid,_ = items[self._selected]
+        cat = self._item_cat(rid)
+        if cat in ("raw","refined","advanced","special"):
+            self.app.logger.system(f"'{rid}' is a resource — use at trade.")
+            return
+        s = self.app.ship
+        if rid in SHIP_MODULES:
+            msg,_ = s.install_module_from_cargo(rid)
+        else:
+            msg,_ = s.use_item(rid,1)
+        self.app.logger.system(msg)
+        self._refresh()
+
+    def _jettison(self):
+        items = self._filtered()
+        if not items or self._selected >= len(items): return
+        rid,amt = items[self._selected]
+        qty = 1
+        self.app.ship.cargo.remove(rid,qty)
+        self.app.logger.system(f"Jettisoned {qty}x {rid}.")
+        self._selected = min(self._selected, max(0,len(self._filtered())-1))
+        self._refresh()
+
+    def _sell_junk(self):
+        st = self._at_station()
+        if not st: self.app.logger.system("Not docked at a station."); return
+        msg,_ = st.buy_all_junk(self.app.ship)
+        self.app.logger.system(msg)
+        self._refresh()
+
+    # -- keys --
     def on_key(self, event):
-        if event.key in ("escape", "q"):
-            self.dismiss()
+        if event.key == "escape":
+            event.stop(); self.dismiss(); return
+        items = self._filtered()
+        if event.key == "up" and items:
+            self._selected = (self._selected-1) % len(items); self._refresh()
+        elif event.key == "down" and items:
+            self._selected = (self._selected+1) % len(items); self._refresh()
+        elif event.key == "enter":
+            self._use_item()
+        elif event.key == "delete":
+            self._jettison()
+        elif event.key in ("s","S"):
+            self._sell_junk()
+        elif event.key in "123456":
+            fkeys = ["all","raw","refined","advanced","special","module"]
+            idx = int(event.key)-1
+            if idx < len(fkeys): self._filter = fkeys[idx]; self._selected = 0; self._refresh()
+
+    def on_input_submitted(self, event):
+        v = event.value.strip().lower()
+        if v in ("close","exit","quit"): event.stop(); self.dismiss(); return
+        # Simple search: filter by keyword
+        if v:
+            self.app.logger.system(f"Search not implemented yet.")
+        event.value = ""
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -202,7 +337,7 @@ class TradeScreen(Screen):
 
     def on_key(self, event):
         if event.key in ("escape", "q"):
-            self.dismiss()
+            event.stop(); self.dismiss()
 
     def on_input_submitted(self, event):
         app = self.app
@@ -219,100 +354,7 @@ class TradeScreen(Screen):
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# Bridge (F1)
-# ═══════════════════════════════════════════════════════════════════════
-
-class BridgeScreen(Screen):
-    def compose(self):
-        yield Static(id="bridge-status")
-        yield Static(id="bridge-modules")
-        yield Static(id="bridge-cargo")
-        yield Static(id="bridge-footer")
-
-    def on_mount(self):
-        app = self.app
-        if not hasattr(app, "ship"):
-            return
-        s = app.ship
-        st = s.get_effective_stats()
-        p_gen = s.total_power_generated()
-        p_con = s.total_power_consumed()
-        eff = 100 if p_con <= p_gen else max(30, int(p_gen / max(1, p_con) * 100))
-
-        race = s.race.title() if s.race else "Human"
-        rel = s.religion or "none"
-        crew_count = sum(1 for v in s.crew.values() if v)
-
-        lines = [
-            f"┌─ BRIDGE ─ {s.name} ─ {race} [{rel}] ─ Cr:{s.credits} ───┐",
-            f"│                                              │",
-            f"│  Hull    {s.hull:>4}/{s.max_hull + st.get('hull_bonus', 0):<4}  "
-            f"Shields  {s.shield_hp:>3}/{st['shield_cap']:<3}  "
-            f"Fuel {s.fuel:>3}      │",
-            f"│  Power   {p_gen:>3} gen / {p_con:<3} used  ({eff}% eff)          │",
-            f"│  Speed   {st['speed']:>2}   Evasion {st['evasion']:>3}%   "
-            f"Sensors +{st['sensor_range']}         │",
-            f"│  Damage  {st['damage']:>3}   Accuracy {st['accuracy']:>3}%  "
-            f"Crew {crew_count}/4 assigned    │",
-            f"│  Shields {st['shield_cap']:>3} cap  Regen {st['shield_regen']:>2}/t  "
-            f"Range {st.get('range', 1)}           │",
-            f"│                                              │",
-        ]
-        self.query_one("#bridge-status").update("\n".join(lines))
-
-        # Modules — compact table
-        mlines = ["┌─ MODULES ────────────────────────────────────┐"]
-        for c in COMPARTMENTS:
-            mods = s.compartments[c]["modules"]
-            if not mods:
-                continue
-            for m in mods:
-                dur_pct = int(m.durability / max(1, m.max_durability) * 100)
-                bar = _bar(dur_pct, 10)
-                sts = "BROKEN" if m.is_broken() else " ON"
-                energy = f"⚡{m.energy_consumption}" if m.energy_consumption > 0 else "   "
-                mlines.append(
-                    f"│ [{sts}] {m.name:<18} {c:<12} dur:{bar} {energy} │"
-                )
-        mlines.append("└──────────────────────────────────────────────┘")
-        self.query_one("#bridge-modules").update("\n".join(mlines))
-
-        # Cargo summary
-        clines = ["┌─ CARGO ──────────────────────────────────────┐"]
-        if s.cargo.items:
-            for rid, amt in sorted(s.cargo.items.items()):
-                name = RESOURCES.get(rid, {}).get("name", rid)
-                clines.append(f"│  {name:<14} x{amt:<4}                    │")
-        else:
-            clines.append("│  (empty)                                      │")
-        cb = st.get("cargo_bonus", 0)
-        clines.append(f"│  {s.cargo.used()}/{s.cargo.capacity + cb} used  │  {s.cargo.total_value()}cr                     │")
-        clines.append("└──────────────────────────────────────────────┘")
-        self.query_one("#bridge-cargo").update("\n".join(clines))
-
-        self.query_one("#bridge-footer").update(
-            "[Esc] Back  |  [F1] Hub  |  direct: F2 Eng  F3 Tac  F4 Cargo  F5 Crew"
-        )
-
-    def on_key(self, event):
-        if event.key == "escape":
-            self.dismiss()
-        elif event.key in ("f2", "F2"):
-            self.dismiss()
-            if hasattr(self.app, "push_screen"):
-                self.app.push_screen(EngineeringScreen())
-        elif event.key in ("f3", "F3"):
-            self.dismiss()
-            if hasattr(self.app, "push_screen"):
-                self.app.push_screen(TacticalScreen())
-        elif event.key in ("f5", "F5"):
-            self.dismiss()
-            if hasattr(self.app, "push_screen"):
-                self.app.push_screen(CrewScreen())
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# Engineering (F2)
+# Bridge (F1) — main ship management hub
 # ═══════════════════════════════════════════════════════════════════════
 
 def _bar(pct, width=10):
@@ -321,14 +363,414 @@ def _bar(pct, width=10):
     return f"[{'█' * filled}{'░' * (width - filled)}]"
 
 
-class EngineeringScreen(Screen):
+class BridgeScreen(Screen):
+    MENU_ITEMS = [
+        ("1", "Engineering", "Power distribution & module management"),
+        ("2", "Tactical", "Weapons & combat targets"),
+        ("3", "Cargo", "Inventory & item management"),
+        ("4", "Crew", "Crew roster & post assignment"),
+        ("5", "Missions", "Active mission overview"),
+        ("6", "Scanner", "Active scan of nearby objects"),
+    ]
+
     def compose(self):
-        yield Static(id="eng-title")
-        yield Static(id="eng-power-summary")
-        yield Static(id="eng-compartments")
-        yield Input(placeholder="power <comp> <0-10>  |  close", id="eng-input")
+        yield Static(id="bridge-top")
+        yield Static(id="bridge-menu")
+        yield Static(id="bridge-footer")
 
     def on_mount(self):
+        self._refresh()
+
+    def _at_station(self):
+        """Check if player is at a station."""
+        app = self.app
+        if not hasattr(app, "galaxy") or not hasattr(app, "ship"):
+            return None
+        return app.galaxy.get_station_at(app.player_x, app.player_y)
+
+    def _refresh(self):
+        app = self.app
+        if not hasattr(app, "ship") or not hasattr(app, "galaxy"):
+            self.query_one("#bridge-top").update("No ship data.")
+            return
+        s = app.ship
+        st = s.get_effective_stats()
+        p_gen = s.total_power_generated()
+        p_con = s.total_power_consumed()
+        eff = 100 if p_con <= p_gen else max(30, int(p_gen / max(1, p_con) * 100))
+        max_h = s.max_hull + st.get("hull_bonus", 0)
+        crew_n = sum(1 for v in s.crew.values() if v)
+        station = self._at_station()
+
+        # ── Top status panel ──
+        hp_pct = int(s.hull / max(1, max_h) * 100)
+        sh_pct = int(s.shield_hp / max(1, st['shield_cap']) * 100) if st['shield_cap'] > 0 else 0
+        top = [
+            "┌" + "─" * 54 + "┐",
+            f"│  {s.name:<20} {'CREDITS':>8}: {s.credits:<6}    │",
+            f"│  HULL    {_bar(hp_pct, 15)} {s.hull:>4}/{max_h:<4}  │",
+            f"│  SHIELDS {_bar(sh_pct, 15)} {s.shield_hp:>3}/{st['shield_cap']:<3}  │",
+            f"│  POWER   {p_gen:>3} gen / {p_con:<3} used  ({eff}% eff)        │",
+            f"│  FUEL    {s.fuel:<3}     CARGO {s.cargo.used()}/{s.cargo.capacity + st.get('cargo_bonus', 0)}   │",
+            f"│  SPEED {st['speed']:>2}  EVASION {st['evasion']:>3}%  SENSORS +{st['sensor_range']:<2}  │",
+            f"│  CREW {crew_n}/4 assigned      MISSIONS {len(s.missions)}        │",
+            "└" + "─" * 54 + "┘",
+        ]
+        self.query_one("#bridge-top").update("\n".join(top))
+
+        # ── Menu ──
+        items = list(self.MENU_ITEMS)
+        if station:
+            items.append(("7", "Station Services", f"Dock at {station.name} [{station.stype}]"))
+        menu = ["┌" + "─" * 54 + "┐", "│" + "  COMMANDS  ".center(52) + "│", "├" + "─" * 54 + "┤"]
+        for key, name, desc in items:
+            menu.append(f"│  [{key}] {name:<20}  {desc:<28}│")
+        menu.append("├" + "─" * 54 + "┤")
+        menu.append("│" + "  [Esc] Back to Galaxy        [↑↓/1-6] Select".center(52) + "│")
+        menu.append("└" + "─" * 54 + "┘")
+        self.query_one("#bridge-menu").update("\n".join(menu))
+
+        self.query_one("#bridge-footer").update("")
+
+    def on_key(self, event):
+        if event.key == "escape":
+            event.stop(); self.dismiss()
+            # Refresh game info panel on return
+            if hasattr(self.app, "update_info"):
+                self.app.update_info()
+            return
+
+        target = None
+        if event.key == "1":
+            target = EngineeringScreen
+        elif event.key == "2":
+            target = TacticalScreen
+        elif event.key == "3":
+            target = CargoScreen
+        elif event.key == "4":
+            target = CrewScreen
+        elif event.key == "5":
+            target = MissionsScreen
+        elif event.key == "6":
+            target = ScanScreen
+        elif event.key == "7":
+            station = self._at_station()
+            if station:
+                target = StationServicesScreen
+
+        if target:
+            event.stop()
+            if target is ScanScreen:
+                self.app.push_screen(ScanScreen())
+            elif target in (StationServicesScreen, MissionListScreen):
+                self.app.push_screen(target(station=self._at_station()))
+            else:
+                self.app.push_screen(target())
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Mission List (view from bridge)
+# ═══════════════════════════════════════════════════════════════════════
+
+class MissionListScreen(Screen):
+    """Legacy alias — kept for compatibility. Use MissionsScreen from bridge."""
+
+    def __init__(self, station=None):
+        super().__init__()
+        self.station = station
+
+    def compose(self):
+        yield Static(id="mlist-content")
+
+    def on_mount(self):
+        app = self.app
+        if not hasattr(app, "ship"):
+            return
+        s = app.ship
+        lines = [
+            "┌" + "─" * 58 + "┐",
+            "│" + "ACTIVE MISSIONS".center(58) + "│",
+            "├" + "─" * 58 + "┤",
+        ]
+        if s.missions:
+            for m in s.missions:
+                lines.append(f"│  {m.title[:30]:<30}  {m.ticks:>3}t  +{m.reward}cr  {m.status:<9}│")
+        else:
+            lines.append("│  (no active missions)                           │")
+        lines.append("├" + "─" * 58 + "┤")
+        lines.append("│" + "[Esc] Back to Bridge".center(58) + "│")
+        lines.append("└" + "─" * 58 + "┘")
+        self.query_one("#mlist-content").update("\n".join(lines))
+
+    def on_key(self, event):
+        if event.key == "escape":
+            event.stop(); self.dismiss()
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Missions Screen (from bridge)
+# ═══════════════════════════════════════════════════════════════════════
+
+class MissionsScreen(Screen):
+    def __init__(self):
+        super().__init__()
+        self._tab = "active"  # active | available
+        self._selected = 0
+
+    def compose(self):
+        yield Static(id="msn-content")
+        yield Input(placeholder="accept <num> | abandon <num> | track <num> | detail <num>  | close", id="msn-input")
+
+    def on_mount(self):
+        self._refresh()
+
+    def _at_station(self):
+        app = self.app
+        return app.galaxy.get_station_at(app.player_x, app.player_y)
+
+    def _refresh(self):
+        app = self.app
+        if not hasattr(app, "ship"):
+            return
+        s = app.ship
+        st = self._at_station()
+        rep_line = "  ".join(f"{f}:{s.reputation.get(f,0)}" for f in sorted(s.reputation) if f != "pirates")
+        lines = [
+            "┌" + "─" * 62 + "┐",
+            "│" + "MISSION LOG".center(62) + "│",
+            f"│  Active: {len(s.missions)}/{s.MAX_MISSIONS}  |  {rep_line[:50]}│",
+            "├" + "─" * 62 + "┤",
+        ]
+
+        # Tabs
+        tab_act = "[Active]" if self._tab == "active" else " Active "
+        tab_avl = "[Available]" if self._tab == "available" else " Available"
+        lines.append(f"│  {tab_act}  |  {tab_avl}" + " " * 26 + "│")
+
+        if self._tab == "active":
+            lines.append("├" + "─" * 62 + "┤")
+            lines.append(f"│ {'ID':>3} {'Title':<30} {'Turns':>5} {'Reward':>6} {'Status':<10}│")
+            lines.append("├" + "─" * 62 + "┤")
+            if s.missions:
+                for i, m in enumerate(s.missions):
+                    sel = "▶" if i == self._selected else " "
+                    t = m.title[:28]
+                    sts = "✓" if m.status == "completed" else "✗" if m.status == "failed" else "●"
+                    lines.append(f"│{sel}{m.id:>3} {t:<30} {m.ticks:>5} {m.reward:>5}cr {sts:<10}│")
+            else:
+                lines.append("│  (no active missions — visit a station)            │")
+        else:
+            lines.append("├" + "─" * 62 + "┤")
+            lines.append(f"│ {'ID':>3} {'Title':<30} {'Turns':>5} {'Reward':>6} {'Giver':<12}│")
+            lines.append("├" + "─" * 62 + "┤")
+            if st and st.missions:
+                for i, m in enumerate(st.missions):
+                    sel = "▶" if i == self._selected else " "
+                    lines.append(f"│{sel}{m.id:>3} {m.title[:28]:<30} {m.ticks:>5} {m.reward:>5}cr {st.name[:10]:<12}│")
+            elif not st:
+                lines.append("│  (not docked at a station)                        │")
+            else:
+                lines.append("│  (no missions available here)                    │")
+
+        lines.append("├" + "─" * 62 + "┤")
+
+        # Actions
+        if self._tab == "active":
+            lines.append("│  [Enter] Track    [A] Abandon    [D] Details         │")
+        else:
+            lines.append("│  [Enter] Accept   [D] Details                        │")
+        lines.append("│  [1] Active missions  [2] Available missions           │")
+        lines.append("├" + "─" * 62 + "┤")
+        lines.append("│" + "[Esc] Back to Bridge".center(62) + "│")
+        lines.append("└" + "─" * 62 + "┘")
+
+        self.query_one("#msn-content").update("\n".join(lines))
+
+    def _selected_mission(self):
+        """Get the current mission list (active or available) and selected item."""
+        s = self.app.ship
+        if self._tab == "active":
+            lst = s.missions
+        else:
+            st = self._at_station()
+            lst = st.missions if st else []
+        if not lst or self._selected >= len(lst):
+            return None, None
+        return lst[self._selected], lst
+
+    def on_key(self, event):
+        if event.key == "escape":
+            event.stop(); self.dismiss(); return
+        app = self.app; s = app.ship
+
+        if event.key == "1":
+            self._tab = "active"; self._selected = 0; self._refresh()
+        elif event.key == "2":
+            self._tab = "available"; self._selected = 0; self._refresh()
+        elif event.key == "up":
+            lst = s.missions if self._tab == "active" else (self._at_station().missions if self._at_station() else [])
+            if lst:
+                self._selected = (self._selected - 1) % len(lst); self._refresh()
+        elif event.key == "down":
+            lst = s.missions if self._tab == "active" else (self._at_station().missions if self._at_station() else [])
+            if lst:
+                self._selected = (self._selected + 1) % len(lst); self._refresh()
+        elif event.key == "enter":
+            m, lst = self._selected_mission()
+            if not m:
+                return
+            if self._tab == "available":
+                st = self._at_station()
+                if st and m in st.missions:
+                    msg, ok = s.add_mission(m)
+                    if ok: st.missions.remove(m)
+                    app.logger.system(msg)
+                    self._selected = min(self._selected, max(0, len(st.missions) - 1))
+            else:
+                s.track_mission(m.id)
+                app.logger.system(f"Tracking: {m.title[:30]}")
+            self._refresh()
+        elif event.key in ("a", "A") and self._tab == "active":
+            m, _ = self._selected_mission()
+            if m:
+                msg, _ = s.abandon_mission(m.id)
+                app.logger.system(msg)
+                self._selected = min(self._selected, max(0, len(s.missions) - 1))
+                self._refresh()
+        elif event.key in ("d", "D"):
+            m, _ = self._selected_mission()
+            if m:
+                app.logger.system(f"{m.title}")
+                app.logger.system(f"  {m.description}")
+                app.logger.system(f"  Status: {m.status}  TTL: {m.ticks}t  Reward: {m.reward}cr")
+
+    def on_input_submitted(self, event):
+        app = self.app; s = app.ship
+        v = event.value.strip().lower()
+        if v in ("close", "exit", "quit"):
+            event.stop(); self.dismiss(); return
+        p = v.split()
+        if not p:
+            return
+        if p[0] == "accept" and len(p) >= 2:
+            try:
+                idx = int(p[1]) - 1
+                st = self._at_station()
+                if st and 0 <= idx < len(st.missions):
+                    m = st.missions[idx]
+                    msg, ok = s.add_mission(m)
+                    if ok: st.missions.remove(m)
+                    app.logger.system(msg)
+            except ValueError:
+                pass
+        elif p[0] == "abandon" and len(p) >= 2:
+            try:
+                mid = int(p[1])
+                msg, _ = s.abandon_mission(mid)
+                app.logger.system(msg)
+            except ValueError:
+                pass
+        elif p[0] == "track" and len(p) >= 2:
+            try:
+                mid = int(p[1])
+                m = s.track_mission(mid)
+                if m:
+                    app.logger.system(f"Tracking: {m.title}")
+                else:
+                    app.logger.system("Mission not found.")
+            except ValueError:
+                pass
+        elif p[0] == "detail" and len(p) >= 2:
+            try:
+                mid = int(p[1])
+                for m in s.missions:
+                    if m.id == mid:
+                        app.logger.system(f"{m.title}")
+                        app.logger.system(f"  {m.description}")
+                        app.logger.system(f"  Status: {m.status}  TTL: {m.ticks}t  Reward: {m.reward}cr")
+            except ValueError:
+                pass
+        self._refresh()
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Station Services (bridge -> services)
+# ═══════════════════════════════════════════════════════════════════════
+
+class StationServicesScreen(Screen):
+    def __init__(self, station=None):
+        super().__init__()
+        self.station = station
+
+    def compose(self):
+        yield Static(id="svc-content")
+        yield Static(id="svc-footer")
+
+    def on_mount(self):
+        app = self.app
+        st = self.station
+        if not st:
+            self.query_one("#svc-content").update("Not at a station.")
+            return
+        s = app.ship
+        lines = [
+            f"┌─ STATION SERVICES ─ {st.name} [{st.faction}] ─ Cr:{s.credits} ──┐",
+            "│                                              │",
+            "│  [1] Trade — buy/sell resources              │",
+        ]
+        if st.modules_for_sale:
+            lines.append(f"│  [2] Modules — {len(st.modules_for_sale)} available{'':>24}│")
+        if st.stype == "shipyard":
+            lines.append(f"│  [3] Shipyard — hulls & upgrades{'':>26}│")
+        if st.stype == "workshop":
+            lines.append(f"│  [4] Workshop — crafting{'':>35}│")
+        if st.stype == "tavern":
+            lines.append(f"│  [5] Tavern — hire crew{'':>34}│")
+        if st.missions:
+            lines.append(f"│  [6] Missions — {len(st.missions)} contracts{'':>29}│")
+        lines.append("│                                              │")
+        lines.append("│  [Esc] Back to Bridge                        │")
+        lines.append("└──────────────────────────────────────────────┘")
+        self.query_one("#svc-content").update("\n".join(lines))
+        self.query_one("#svc-footer").update("")
+
+    def on_key(self, event):
+        st = self.station
+        app = self.app
+        if event.key == "escape":
+            event.stop(); self.dismiss(); return
+        if event.key == "1":
+            if st: app.push_screen(TradeScreen(st))
+        elif event.key == "2" and st and st.modules_for_sale:
+            app.push_screen(ModuleShopScreen(st))
+        elif event.key == "3" and st and st.stype == "shipyard":
+            app.push_screen(ShipyardScreen(st))
+        elif event.key == "4" and st and st.stype == "workshop":
+            app.push_screen(CraftingScreen(st))
+        elif event.key == "5" and st and st.stype == "tavern":
+            app.push_screen(HireScreen(st))
+        elif event.key == "6" and st and st.missions:
+            app.push_screen(MissionScreen(st))
+        event.stop()
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Engineering (from bridge)
+# ═══════════════════════════════════════════════════════════════════════
+
+class EngineeringScreen(Screen):
+    def __init__(self):
+        super().__init__()
+        self._selected_comp = None
+
+    def compose(self):
+        yield Static(id="eng-content")
+        yield Input(placeholder="power <comp> <0-10>  |  repair <comp>  |  upgrade <num>  |  close", id="eng-input")
+
+    def on_mount(self):
+        self._refresh()
+
+    def _refresh(self):
         app = self.app
         if not hasattr(app, "ship"):
             return
@@ -336,38 +778,65 @@ class EngineeringScreen(Screen):
         p_gen = s.total_power_generated()
         p_con = s.total_power_consumed()
         eff = 100 if p_con <= p_gen else max(30, int(p_gen / max(1, p_con) * 100))
+        crew_eng_bonus = s._crew_bonus("power_bonus", 0)
 
-        self.query_one("#eng-title").update(
-            f"┌─ ENGINEERING ────────────────────────────────┐"
-        )
-        self.query_one("#eng-power-summary").update(
-            f"│  Reactor: {p_gen} generated  │  Load: {p_con} used  ({eff}%)  │\n"
-            f"│──────────────────────────────────────────────│"
-        )
+        lines = [
+            "┌" + "─" * 56 + "┐",
+            "│" + "ENGINEERING".center(56) + "│",
+            "├" + "─" * 56 + "┤",
+            f"│  Reactor: {p_gen} gen  │  Load: {p_con} used  ({eff}% eff)"
+            f"{'  Crew +' + str(crew_eng_bonus) + '%' if crew_eng_bonus else ''}{'':>8}│",
+            "├" + "─" * 56 + "┤",
+        ]
 
-        comp_lines = []
-        for c in COMPARTMENTS:
+        for i, c in enumerate(COMPARTMENTS, 1):
             mods = s.compartments[c]["modules"]
             pw = s.compartments[c]["power"]
-            pbar = _bar(pw * 10, 10)  # 0-10 → 0-100%
-            mlist = ", ".join(
-                f"{m.name}{' ✗' if m.is_broken() else ''}"
-                for m in mods
-            ) if mods else "(none)"
+            pbar = _bar(pw * 10, 10)
             energy = sum(m.energy_consumption for m in mods if m.active and not m.is_broken())
-            comp_lines.append(
-                f"│ {c:<14} power:{pw:>2} {pbar}  ⚡{energy}  {mlist[:40]}"
-            )
-        footer = "│                                              │\n└──────────────────────────────────────────────┘"
-        self.query_one("#eng-compartments").update("\n".join(comp_lines) + "\n" + footer)
+            sel = "▸" if self._selected_comp == c else " "
+            lines.append(f"│{sel}{i}. {c:<14} power:{pw:>2} {pbar}  ⚡{energy:<3}     │")
+
+            if not mods:
+                lines.append(f"│     (empty{'':>48}│")
+            else:
+                for m in mods:
+                    dur_pct = int(m.durability / max(1, m.max_durability) * 100)
+                    dbar = _bar(dur_pct, 6)
+                    sts = "☠" if m.is_broken() else "✓"
+                    lvl = f"Lv{m.level}" if m.level > 1 else "   "
+                    lines.append(
+                        f"│     {sts} {m.name:<18} {lvl} {dbar} "
+                        f"{m.durability:>3}/{m.max_durability:<3} "
+                        f"{'⚡'+str(m.energy_consumption) if m.energy_consumption else '   '}  │"
+                    )
+
+        lines.append("├" + "─" * 56 + "┤")
+
+        # Help
+        lines.append("│  [1-7] select compartment  [0-9] set power          │")
+        lines.append("│  repair <comp> — fix modules  upgrade <num> — Lv up│")
+        lines.append("├" + "─" * 56 + "┤")
+        lines.append("│" + "[Esc] Back to Bridge".center(56) + "│")
+        lines.append("└" + "─" * 56 + "┘")
+        self.query_one("#eng-content").update("\n".join(lines))
 
     def on_key(self, event):
         if event.key == "escape":
-            self.dismiss()
-        elif event.key in ("f1", "F1"):
-            self.dismiss()
-            if hasattr(self.app, "push_screen"):
-                self.app.push_screen(BridgeScreen())
+            event.stop(); self.dismiss(); return
+
+        # 1-7 select compartment, 0-9 set power for selected
+        if event.key in "1234567":
+            idx = int(event.key) - 1
+            if idx < len(COMPARTMENTS):
+                self._selected_comp = COMPARTMENTS[idx]
+                self._refresh()
+            return
+        if event.key in "089" and self._selected_comp:
+            val = int(event.key)
+            self.app.ship.compartments[self._selected_comp]["power"] = val
+            self._refresh()
+            return
 
     def on_input_submitted(self, event):
         app = self.app
@@ -375,122 +844,197 @@ class EngineeringScreen(Screen):
             return
         v = event.value.strip().lower()
         if v in ("close", "exit"):
-            self.dismiss(); return
+            event.stop(); self.dismiss(); return
         app.process_command(v)
-        self.on_mount()
+        self._refresh()
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# Tactical (F3)
+# Tactical (from bridge)
 # ═══════════════════════════════════════════════════════════════════════
 
 class TacticalScreen(Screen):
+    """Weapon systems and target management screen."""
+
+    def __init__(self):
+        super().__init__()
+        self._active_panel = "weapons"  # "weapons" | "targets"
+        self._sel_weapon = 0
+        self._sel_target = 0
+
     def compose(self):
-        yield Static(id="tac-header")
         yield Static(id="tac-content")
-        yield Input(placeholder="fire <num>  |  close", id="tac-input")
 
     def on_mount(self):
+        self._refresh()
+
+    def _get_weapons(self):
+        return [m for m in self.app.ship.compartments["weapon"]["modules"]
+                if m.active and not m.is_broken()]
+
+    def _get_targets(self):
+        app = self.app
+        g = app.galaxy
+        rng = app.ship.get_effective_stats().get("sensor_range", 7)
+        targets = []
+        px, py = app.player_x, app.player_y
+        for p in g.pirates:
+            if p.alive:
+                d = max(abs(p.x - px), abs(p.y - py))
+                if d <= rng:
+                    hpct = int(p.hull / max(1, p.max_hull) * 100)
+                    targets.append((d, p, "☠ Pirate", "Hostile", hpct, getattr(p, 'shield_hp', 0)))
+        for t in g.traders:
+            if t.alive:
+                d = max(abs(t.x - px), abs(t.y - py))
+                if d <= rng:
+                    hpct = int(t.hull / max(1, t.max_hull) * 100)
+                    targets.append((d, t, "T Trader", "Neutral", hpct, getattr(t, 'shield_hp', 0)))
+        targets.sort(key=lambda x: x[0])
+        return targets
+
+    def _refresh(self):
         app = self.app
         if not hasattr(app, "ship"):
             return
         s = app.ship
         stats = s.get_effective_stats()
+        weapons = self._get_weapons()
+        targets = self._get_targets()
+
+        # Ensure selection indices are valid
+        self._sel_weapon = min(self._sel_weapon, max(0, len(weapons) - 1))
+        self._sel_target = min(self._sel_target, max(0, len(targets) - 1))
+
+        # Clamp selected indices
+        panels = {"weapons": self._sel_weapon, "targets": self._sel_target}
+
+        # ── Top status bar ──
+        hull_pct = int(s.hull / max(1, s.max_hull) * 100)
+        sh_pct = int(s.shield_hp / max(1, stats['shield_cap']) * 100) if stats['shield_cap'] > 0 else 0
+        hbar = _bar(hull_pct, 10)
+        shbar = _bar(sh_pct, 10)
+        alarms = ""
+        if hull_pct < 30:
+            alarms = "  ⚠ HULL CRITICAL"
+        elif hull_pct < 60:
+            alarms = "  ⚡ Hull damaged"
 
         lines = [
-            f"┌─ TACTICAL ─ {s.name} ────────────────"
-            f"H:{s.hull} Sh:{s.shield_hp}/{stats['shield_cap']} F:{s.fuel} ─┐",
-            f"│                                              │",
-            f"│  ══ WEAPONS ══                               │",
+            "┌" + "─" * 56 + "┐",
+            "│" + "TACTICAL".center(56) + "│",
+            "├" + "─" * 56 + "┤",
+            f"│  HULL    {hbar}  {s.hull:>3}/{s.max_hull:<3}     │",
+            f"│  SHIELDS {shbar}  {s.shield_hp:>3}/{stats['shield_cap']:<3}{alarms:<20}│",
+            "├" + "─" * 56 + "┤",
+            # ── Weapons panel ──
+            f"│  {'═' * 25} WEAPONS {'═' * 21}│",
         ]
 
-        weapons = [m for m in s.compartments["weapon"]["modules"]
-                   if m.active and not m.is_broken()]
-        if weapons:
-            for i, w in enumerate(weapons, 1):
+        if not weapons:
+            lines.append("│  No weapons installed.                        │")
+        else:
+            for i, w in enumerate(weapons):
+                dp = w.stats.get('damage', 0)
+                ac = w.stats.get('accuracy', 0)
+                ec = w.energy_consumption
                 dur_pct = int(w.durability / max(1, w.max_durability) * 100)
+                active = "▶" if i == self._sel_weapon and self._active_panel == "weapons" else " "
+                selected = "*ACTIVE*" if i == self._sel_weapon else "         "
                 lines.append(
-                    f"│  [{i}] {w.name:<18} ⚔{w.stats.get('damage',0):>3} "
-                    f"🎯{w.stats.get('accuracy',0)}%  "
-                    f"dur:{_bar(dur_pct, 6)}  │"
+                    f"│{active}{i+1}. {w.name:<14} Lv{w.level}  "
+                    f"⚔{dp:>3} 🎯{ac:>2}% ⚡{ec}  {_bar(dur_pct, 5)} {selected}│"
                 )
+
+        # ── Targets panel ──
+        lines.append(f"│  {'═' * 25} TARGETS {'═' * 21}│")
+        if not targets:
+            lines.append("│  No targets in sensor range.                  │")
         else:
-            lines.append("│  (no weapons installed)                       │")
-
-        lines.append(f"│  Effective: ⚔{stats['damage']} dmg  🎯{stats['accuracy']}%  📏rng:{stats.get('range',1)}           │")
-        lines.append(f"│                                              │")
-        lines.append(f"│  ══ TARGETS (range {stats.get('range',1)}) ══                            │")
-
-        g = app.galaxy
-        targets = []
-        rng = stats.get("range", 1)
-        for p in g.pirates:
-            if p.alive:
-                d = max(abs(p.x - app.player_x), abs(p.y - app.player_y))
-                if d <= rng:
-                    targets.append((d, p.name, p.hull, p.max_hull,
-                                    getattr(p, 'shield_hp', 0), "☠", p))
-        for t in g.traders:
-            if t.alive:
-                d = max(abs(t.x - app.player_x), abs(t.y - app.player_y))
-                if d <= rng:
-                    targets.append((d, t.name, t.hull, t.max_hull,
-                                    getattr(t, 'shield_hp', 0), "T", t))
-        targets.sort(key=lambda x: x[0])
-
-        if targets:
-            for i, (d, name, hull, mhull, sh, icon, _) in enumerate(targets, 1):
-                hpct = int(hull / max(1, mhull) * 100)
-                hbar = _bar(hpct, 8)
-                sh_str = f" 🛡{sh}" if sh > 0 else ""
+            for i, (d, npc, label, status, hpct, sh) in enumerate(targets):
+                sel = "▶" if i == self._sel_target and self._active_panel == "targets" else " "
+                st_icon = "☠" if status == "Hostile" else "☮" if status == "Neutral" else "?"
                 lines.append(
-                    f"│  [{i}] {icon} {name:<18} {hbar} H:{hull}/{mhull}{sh_str} d:{d}  │"
+                    f"│{sel}{i+1}. {label:<12} "
+                    f"H:{_bar(hpct, 6)} {npc.hull:>3}/{npc.max_hull:<3} "
+                    f"{'🛡'+str(sh) if sh else '   '} d:{d} {st_icon}│"
                 )
-        else:
-            lines.append("│  (no targets in weapon range)                 │")
 
-        lines.append("└──────────────────────────────────────────────┘")
+        # ── Stats line ──
+        lines.append("├" + "─" * 56 + "┤")
+        lines.append(
+            f"│  Effective: ⚔{stats['damage']} dmg  🎯{stats['accuracy']}%  "
+            f"📡 +{stats['sensor_range']} range          │"
+        )
+
+        # ── Action footer ──
+        can_engage = weapons and targets
+        lines.append("├" + "─" * 56 + "┤")
+        lines.append(
+            f"│  [Enter] {'Engage' if can_engage else '(Engage — select weapon & target)'}"
+            f"{'':<20}│"
+        )
+        lines.append(
+            f"│  {'[F] Fire at Will (auto)':<30}"
+            f"{'[Tab] Switch panel':<25}│"
+        )
+        lines.append("├" + "─" * 56 + "┤")
+        lines.append(
+            f"│  [↑↓] Navigate  [Tab] Weapons/Targets  [Enter] Battle"
+            f"{'':<10}│"
+        )
+        lines.append("│" + "[Esc] Back to Bridge".center(56) + "│")
+        lines.append("└" + "─" * 56 + "┘")
+
         self.query_one("#tac-content").update("\n".join(lines))
 
     def on_key(self, event):
         if event.key == "escape":
-            self.dismiss()
+            event.stop(); self.dismiss(); return
 
-    def on_input_submitted(self, event):
+        weapons = self._get_weapons()
+        targets = self._get_targets()
+
+        if event.key == "up":
+            if self._active_panel == "weapons" and weapons:
+                self._sel_weapon = (self._sel_weapon - 1) % len(weapons)
+            elif self._active_panel == "targets" and targets:
+                self._sel_target = (self._sel_target - 1) % len(targets)
+            self._refresh()
+        elif event.key == "down":
+            if self._active_panel == "weapons" and weapons:
+                self._sel_weapon = (self._sel_weapon + 1) % len(weapons)
+            elif self._active_panel == "targets" and targets:
+                self._sel_target = (self._sel_target + 1) % len(targets)
+            self._refresh()
+        elif event.key == "tab":
+            self._active_panel = "targets" if self._active_panel == "weapons" else "weapons"
+            self._refresh()
+        elif event.key in ("f", "F"):
+            # Fire at Will: auto-target nearest hostile
+            hostiles = [(d, npc) for d, npc, _, st, _, _ in targets
+                        if st == "Hostile"]
+            if weapons and hostiles:
+                _, target = hostiles[0]
+                self._start_battle(target)
+        elif event.key == "enter":
+            # Engage: selected weapon × selected target
+            sel_w = self._sel_weapon if self._active_panel == "weapons" else self._sel_target
+            if weapons and targets:
+                if self._active_panel == "weapons":
+                    tgt = targets[self._sel_target][1] if targets else None
+                else:
+                    tgt = targets[self._sel_target][1]
+                if tgt:
+                    self._start_battle(tgt)
+
+    def _start_battle(self, target_npc):
+        """Push BattleScreen for the given target."""
         app = self.app
-        if not hasattr(app, "process_command"):
-            return
-        v = event.value.strip().lower()
-        if v in ("close", "exit"):
-            self.dismiss(); return
-        parts = v.split()
-        if parts and parts[0] == "fire" and len(parts) >= 2:
-            try:
-                idx = int(parts[1]) - 1
-            except ValueError:
-                return
-            # Rebuild target list
-            g = app.galaxy
-            rng = app.ship.get_effective_stats().get("range", 1)
-            tgts = []
-            for p in g.pirates:
-                if p.alive:
-                    d = max(abs(p.x - app.player_x), abs(p.y - app.player_y))
-                    if d <= rng:
-                        tgts.append((d, p.name, p))
-            for t in g.traders:
-                if t.alive:
-                    d = max(abs(t.x - app.player_x), abs(t.y - app.player_y))
-                    if d <= rng:
-                        tgts.append((d, t.name, t))
-            tgts.sort(key=lambda x: x[0])
-            if 0 <= idx < len(tgts):
-                _, name, _ = tgts[idx]
-                app.process_command(f"attack {name}")
-            self.dismiss()
-        else:
-            app.process_command(v)
-            self.dismiss()
+        from battle import BattleController, BattleScreen
+        bc = BattleController(app.ship, target_npc, app, selected_weapon_idx=self._sel_weapon)
+        app.push_screen(BattleScreen(bc))
+        self.dismiss()
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -541,7 +1085,7 @@ class ModuleShopScreen(Screen):
 
     def on_key(self, event):
         if event.key in ("escape", "q"):
-            self.dismiss()
+            event.stop(); self.dismiss()
 
     def on_input_submitted(self, event):
         app = self.app
@@ -623,7 +1167,7 @@ class MissionScreen(Screen):
 
     def on_key(self, event):
         if event.key in ("escape", "q"):
-            self.dismiss()
+            event.stop(); self.dismiss()
 
     def on_input_submitted(self, event):
         app = self.app
@@ -690,7 +1234,7 @@ class CrewScreen(Screen):
 
     def on_key(self, event):
         if event.key == "escape":
-            self.dismiss()
+            event.stop(); self.dismiss()
         elif event.key in ("f1", "F1"):
             self.dismiss()
             if hasattr(self.app, "push_screen"):
@@ -705,3 +1249,259 @@ class CrewScreen(Screen):
             self.dismiss(); return
         app.process_command(v)
         self.on_mount()
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Shipyard (hulls, modules, upgrades)
+# ═══════════════════════════════════════════════════════════════════════
+
+class ShipyardScreen(Screen):
+    def __init__(self, station):
+        super().__init__(); self.station = station; self.tab = "hulls"
+    def compose(self):
+        yield Static(id="yard-content"); yield Input(placeholder="buy/sell <id>  |  (h)ulls (m)odules (u)pgrades  | close", id="yard-input")
+    def on_mount(self): self._refresh()
+    def _refresh(self):
+        app = self.app; st = self.station; s = app.ship
+        lines = [f"┌─ SHIPYARD ─ {st.name} [{st.faction}] ─ Cr:{s.credits} ──────┐", "│                                              │", "│  ══ TABS: (H)ulls  (M)odules  (U)pgrades ══  │", "│                                              │"]
+        if self.tab == "hulls":
+            lines.append("│  ── HULLS FOR SALE ──                           │")
+            for i, hid in enumerate(st.hulls_for_sale, 1):
+                c = SHIP_HULLS.get(hid, {}); own = "✓" if hid in s.owned_hulls else ""; cur = "→" if hid == s.hull_id else ""
+                lines.append(f"│  [{i}] {c.get('name', hid):<14} H:{c.get('hull',0):>3} C:{c.get('cargo',0):>3} S:{c.get('speed',0)} {c.get('cost',0):>5}cr {own}{cur}    │")
+                lines.append(f"│      {c.get('desc', '')[:46]}")
+            lines.append("│  ── OWNED HULLS ──                             │")
+            for hid in s.owned_hulls:
+                c = SHIP_HULLS.get(hid, {}); cur = " ◀ CURRENT" if hid == s.hull_id else ""
+                lines.append(f"│  {c.get('name', hid):<16}{cur:<30}│")
+            lines.append("│  sell <hid> / switch <hid> / buy <num>        │")
+        elif self.tab == "modules":
+            lines.append("│  ── MODULES FOR SALE ──                         │")
+            for i, mid in enumerate(st.modules_for_sale, 1):
+                info = SHIP_MODULES.get(mid, {}); d2 = info.get("desc", "")
+                lines.append(f"│  [{i}] {info.get('name', mid):<18} {info.get('comp','?'):<12} {info.get('cost',0):>5}cr  ⚡{info.get('energy',0)}  │")
+                if d2: lines.append(f"│      {d2[:44]}")
+            if not st.modules_for_sale: lines.append("│  (sold out)                                   │")
+            lines.append("│  buy mod <num>                                  │")
+        elif self.tab == "upgrades":
+            lines.append("│  ── HULL UPGRADES ──                            │")
+            for uid, c in UPGRADES.items():
+                done = "✓" if s.has_upgrade(uid) else " "; inp = " ".join(f"{a}{r[0]}" for r, a in c.get("inputs", {}).items())
+                lines.append(f"│  {done} {c.get('name', uid):<20} {c.get('cost',0):>5}cr  {inp:<12}   │")
+                lines.append(f"│      {c.get('desc', '')[:46]}")
+            lines.append("│  upgrade <id>                                   │")
+        lines.append("└──────────────────────────────────────────────┘")
+        self.query_one("#yard-content").update("\n".join(lines))
+    def on_key(self, event):
+        if event.key in ("escape", "q"): event.stop(); self.dismiss()
+        elif event.key in ("h","H"): self.tab = "hulls"; self._refresh()
+        elif event.key in ("m","M"): self.tab = "modules"; self._refresh()
+        elif event.key in ("u","U"): self.tab = "upgrades"; self._refresh()
+    def on_input_submitted(self, event):
+        app = self.app; st = self.station; s = app.ship; v = event.value.strip().lower()
+        if v in ("close","exit","quit"): self.dismiss(); return
+        p = v.split()
+        if not p: return
+        if p[0] == "sell" and len(p) >= 2: msg, ok = s.sell_hull(p[1]); app.logger.system(msg)
+        elif p[0] == "switch" and len(p) >= 2: msg, ok = s.switch_hull(p[1]); app.logger.system(msg)
+        elif p[0] == "buy":
+            if len(p) >= 2:
+                try:
+                    idx = int(p[1]) - 1
+                    if self.tab == "hulls" and 0 <= idx < len(st.hulls_for_sale):
+                        hid = st.hulls_for_sale[idx]; msg, ok = s.buy_hull(hid)
+                        if ok: st.hulls_for_sale.pop(idx); app.logger.system(msg)
+                except ValueError: pass
+            if len(p) >= 3 and p[1] == "mod":
+                try:
+                    idx = int(p[2]) - 1
+                    if 0 <= idx < len(st.modules_for_sale):
+                        mid = st.modules_for_sale[idx]; info = SHIP_MODULES.get(mid, {}); cost = info.get("cost", 0)
+                        if s.credits < cost: app.logger.system(f"Need {cost}cr, have {s.credits}cr.")
+                        elif s.install_module(mid): s.credits -= cost; st.modules_for_sale.pop(idx); app.logger.system(f"Installed {info.get('name', mid)} for {cost}cr!")
+                        else: app.logger.system(f"Can't install {mid}.")
+                except ValueError: pass
+        elif p[0] == "upgrade" and len(p) >= 2: msg, ok = s.apply_upgrade(p[1]); app.logger.system(msg)
+        else: app.process_command(v)
+        self._refresh()
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Crafting (workshop)
+# ═══════════════════════════════════════════════════════════════════════
+
+class CraftingScreen(Screen):
+    def __init__(self, station): super().__init__(); self.station = station
+    def compose(self): yield Static(id="craft-content"); yield Input(placeholder="craft <num> <item>  |  close", id="craft-input")
+    def on_mount(self):
+        app = self.app; st = self.station; s = app.ship
+        lines = [f"┌─ WORKSHOP ─ {st.name} [{st.faction}] ─ Cr:{s.credits} ──────┐", "│                                              │", "│  ══ RECIPES ══                                │"]
+        for rid in st.recipes_available:
+            rc = RECIPES.get(rid, {}); inp = " + ".join(f"{amt}x {RESOURCES.get(r,{}).get('name',r)}" for r, amt in rc.get("inputs",{}).items())
+            lines.append(f"│  {rc.get('name', rid):<18}  {rc.get('craft_time',0)}t  needs:{inp[:30]}  │")
+            lines.append(f"│      → {rc.get('desc', '')[:46]}")
+        if not st.recipes_available: lines.append("│  (no recipes available)                        │")
+        lines.append("│  ── CARGO ──                                     │")
+        for rid, amt in sorted(s.cargo.items.items()):
+            lines.append(f"│  {RESOURCES.get(rid,{}).get('name', rid):<14} x{amt:<4}                    │")
+        if not s.cargo.items: lines.append("│  (empty)                                      │")
+        lines.append(f"│  {s.cargo.used()}/{s.cargo.capacity} used  Val:{s.cargo.total_value()}cr        │")
+        lines.append("└──────────────────────────────────────────────┘")
+        self.query_one("#craft-content").update("\n".join(lines))
+    def on_key(self, event):
+        if event.key in ("escape","q"): event.stop(); self.dismiss()
+    def on_input_submitted(self, event):
+        app = self.app; s = app.ship; v = event.value.strip().lower()
+        if v in ("close","exit","quit"): self.dismiss(); return
+        p = v.split()
+        if p and p[0] == "craft":
+            amount = 1; target = ""
+            if len(p) >= 3:
+                try: amount = int(p[1]); target = p[2]
+                except ValueError: target = p[1]
+            if not target: app.logger.system("craft [amount] <item_id>"); self.dismiss(); return
+            matched = None
+            for rid in self.station.recipes_available:
+                if rid.startswith(target) or RECIPES.get(rid,{}).get("name","").lower().startswith(target):
+                    matched = rid; break
+            if not matched: app.logger.system(f"Recipe '{target}' not available here.")
+            else: msg, ok = s.craft(matched, amount); app.logger.system(msg)
+            self.dismiss(); return
+        app.process_command(v); self.dismiss()
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Hiring (tavern)
+# ═══════════════════════════════════════════════════════════════════════
+
+class HireScreen(Screen):
+    def __init__(self, station): super().__init__(); self.station = station
+    def compose(self): yield Static(id="hire-content"); yield Input(placeholder="hire <num>  |  close", id="hire-input")
+    def on_mount(self):
+        app = self.app; st = self.station; s = app.ship
+        lines = [f"┌─ TAVERN ─ {st.name} [{st.faction}] ─ Cr:{s.credits} ──────┐", "│                                              │", "│  ══ AVAILABLE CREW ══                         │"]
+        for i, cm in enumerate(st.crew_for_hire, 1):
+            sn = CREW_SPECIALTIES.get(cm.specialty,{}).get("name", cm.specialty)
+            lines.append(f"│  [{i}] {cm.name:<14} {sn:<12} Lv{cm.level}  salary:{cm.salary}cr  │")
+        if not st.crew_for_hire: lines.append("│  (nobody looking for work)                    │")
+        lines.append(f"│  ── YOUR CREW ({len(s.crew_members)}/{s._max_crew_slots()}) ──               │")
+        for cm in s.crew_members:
+            sn = CREW_SPECIALTIES.get(cm.specialty,{}).get("name", cm.specialty)
+            a = " (on duty)" if cm.assigned else ""
+            lines.append(f"│  {cm.name:<14} {sn:<12} Lv{cm.level}{a}  │")
+        if not s.crew_members: lines.append("│  (no crew)                                    │")
+        lines.append("└──────────────────────────────────────────────┘")
+        self.query_one("#hire-content").update("\n".join(lines))
+    def on_key(self, event):
+        if event.key in ("escape","q"): event.stop(); self.dismiss()
+    def on_input_submitted(self, event):
+        app = self.app; st = self.station; s = app.ship; v = event.value.strip().lower()
+        if v in ("close","exit","quit"): self.dismiss(); return
+        p = v.split()
+        if p and p[0] == "hire" and len(p) >= 2:
+            try: idx = int(p[1]) - 1
+            except ValueError: app.logger.system("hire <num>"); return
+            if 0 <= idx < len(st.crew_for_hire):
+                cm = st.crew_for_hire.pop(idx); msg, ok = s.hire_crew(cm); app.logger.system(msg)
+        else: app.process_command(v)
+        self.on_mount()
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Scan Screen
+# ═══════════════════════════════════════════════════════════════════════
+
+class ScanScreen(Screen):
+    def __init__(self):
+        super().__init__()
+        self._selected = 0
+        self._targets = []
+        self._result = None
+        self._mode = "select"  # select | result
+
+    def compose(self):
+        yield Static(id="scan-content")
+
+    def on_mount(self):
+        self._refresh_targets()
+        self._update_display()
+
+    def _refresh_targets(self):
+        app = self.app
+        rng = app.ship.get_effective_stats().get("sensor_range", 5) * 2
+        self._targets = app.galaxy.get_scannable_objects(app.player_x, app.player_y, rng)
+        self._selected = min(self._selected, max(0, len(self._targets) - 1))
+
+    def _update_display(self):
+        app = self.app
+        s = app.ship
+        lines = []
+        W = 64
+
+        if self._mode == "result" and self._result:
+            lines.append("┌" + "─" * W + "┐")
+            lines.append("│" + "SCAN RESULT".center(W) + "│")
+            lines.append("├" + "─" * W + "┤")
+            info = self._result.info
+            for k, v in info.items():
+                if k in ("scanned", "scan_level", "type"):
+                    continue
+                val = str(v)[:W - 10]
+                lines.append(f"│  {k:<12} {val:<{W-17}}│")
+            if self._result.level == "active":
+                lines.append("│" + "─" * W + "┤")
+                lines.append("│  [Enter] Deep scan (costs more)                │")
+            lines.append("├" + "─" * W + "┤")
+            lines.append("│" + "[Esc] Back to targets".center(W) + "│")
+            lines.append("└" + "─" * W + "┘")
+        elif self._mode == "select":
+            lines.append("┌" + "─" * W + "┐")
+            lines.append("│" + "SCANNER".center(W) + "│")
+            lines.append(f"│  Sensor range: {s.get_effective_stats().get('sensor_range', 5)}  Energy: {s.total_power_generated() - s.total_power_consumed()} spare{'':>20}│")
+            lines.append("├" + "─" * W + "┤")
+            lines.append(f"│ {'':>2} {'Target':<25} {'Dist':>4} {'Status':<15}│")
+            lines.append("├" + "─" * W + "┤")
+            if not self._targets:
+                lines.append("│  (no targets in sensor range)                   │")
+            else:
+                for i, (d, label, obj) in enumerate(self._targets):
+                    sel = "▶" if i == self._selected else " "
+                    scanned = getattr(obj, "scanned", False)
+                    status = "Scanned" if scanned else "Unknown"
+                    lines.append(f"│{sel}{i+1:>2}. {label:<25} {d:>3}  {status:<15}│")
+            lines.append("├" + "─" * W + "┤")
+            lines.append("│  [Enter] Active scan  [↑↓] Select  [Esc] Close    │")
+            lines.append("└" + "─" * W + "┘")
+        self.query_one("#scan-content").update("\n".join(lines))
+
+    def on_key(self, event):
+        if event.key == "escape":
+            if self._mode == "result":
+                self._mode = "select"
+                self._update_display()
+            else:
+                event.stop(); self.dismiss()
+            return
+
+        if self._mode == "select":
+            if event.key == "up":
+                self._selected = (self._selected - 1) % max(1, len(self._targets))
+                self._update_display()
+            elif event.key == "down":
+                self._selected = (self._selected + 1) % max(1, len(self._targets))
+                self._update_display()
+            elif event.key == "enter" and self._targets:
+                _, _, obj = self._targets[self._selected]
+                app = self.app
+                result = app.ship.scan_target(obj, "active", app.galaxy)
+                self._result = result
+                self._mode = "result"
+                if result.success:
+                    app.logger.system(f"Active scan: {result.summary()}")
+                    # Check if a mission was generated
+                    if hasattr(result, 'scanned_obj') and result.scanned_obj:
+                        pass
+                else:
+                    err = result.info.get("error", "Scan failed.")
+                    app.logger.system(f"Scan error: {err}")
+                self._update_display()

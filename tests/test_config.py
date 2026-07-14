@@ -47,11 +47,11 @@ class TestResources:
             assert "cat" in info, f"{rid} missing cat"
             assert "base_price" in info, f"{rid} missing base_price"
             assert info["base_price"] > 0, f"{rid} base_price must be positive"
-            assert info["cat"] in ("raw", "refined", "advanced", "special"), \
+            assert info["cat"] in ("raw", "refined", "advanced", "special", "consumable"), \
                 f"{rid} unknown category: {info['cat']}"
 
     def test_resource_count(self):
-        assert len(RESOURCES) == 8
+        assert len(RESOURCES) == 10
 
 
 class TestRaces:

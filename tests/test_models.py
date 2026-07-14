@@ -209,8 +209,8 @@ class TestPlayerShip:
 
     def test_power_consumed(self):
         s = PlayerShip("A", 100)
-        # ion_drive(2) + deflector_shield(4) + long_range_scanner(2) = 8
-        assert s.total_power_consumed() == 8
+        # ion_drive(2) + deflector_shield(4) + long_range_scanner(2) + laser_turret(3) = 11
+        assert s.total_power_consumed() == 11
 
     def test_effective_stats_speed(self):
         s = PlayerShip("A", 100)

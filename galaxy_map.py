@@ -13,6 +13,7 @@ from textual import events
 from game_logger import GameLogger
 from config import (
     WIDTH, HEIGHT, RESOURCES, RACES, FACTIONS, COMPARTMENTS, CONTRABAND,
+    SHIP_HULLS, SHIP_MODULES, UPGRADES, RECIPES, CREW_SPECIALTIES,
     TILE_EMPTY, TILE_STAR, TILE_PLANET, TILE_STATION, TILE_BLACK_HOLE,
     TILE_WORMHOLE, TILE_ASTEROIDS, TILE_SHIP, TILE_OTHER_SHIP,
     TILE_CURSOR, TILE_TRADER, TILE_PIRATE, DIR_LABELS,
@@ -22,8 +23,11 @@ import models
 from ui import (
     CommandScreen, CargoScreen, TradeScreen,
     BridgeScreen, EngineeringScreen, TacticalScreen, CrewScreen,
-    ShipHubScreen, ModuleShopScreen, MissionScreen,
+    ModuleShopScreen, MissionScreen, MissionsScreen,
+    ShipyardScreen, CraftingScreen, HireScreen,
+    ScanScreen,
 )
+from battle import BattleScreen, BattleController
 
 # ---------------------------------------------------------------------------
 # Game state enum
@@ -82,6 +86,8 @@ class GalaxyMapApp(App):
         self.race_selected = False
         self._prev_state = GameState.START_SCREEN
         self._interaction_active = False
+        self._pending_battle = None
+        self._dismiss_handled_escape = False
         self._init_player_position()
 
     def _init_player_position(self):
@@ -127,6 +133,8 @@ class GalaxyMapApp(App):
         self.death_cause = None
         self.interaction_actions = []
         self.race_selected = False
+        self._pending_battle = None
+        self._dismiss_handled_escape = False
         self._interaction_active = False
         self._init_player_position()
         self.update_map()
@@ -166,8 +174,8 @@ class GalaxyMapApp(App):
             "  ┃ future, there is only war.          ┃",
             "  ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛",
             f"  Race: {RACES.get(self.ship.race, {}).get('name', 'Human')}", "",
-            "  WASD Move  E Interact  I Inspect  H Help",
-            "  N News  F1 Bridge  F2 Engineering  ~ Console", "",
+            f"  WASD Move  E Interact  I Inspect  H Help",
+            f"  N News  F1 Bridge (scanner, missions)  ~ Console", "",
             "  Press any key to start...",
         ]))
 
@@ -181,13 +189,12 @@ class GalaxyMapApp(App):
             "  ┃                                                 ┃",
             "  ┃  ACTIONS:                                       ┃",
             "  ┃    E = interact with nearby objects              ┃",
-            "  ┃    F = fire at adjacent pirate                   ┃",
+            "  ┃    F = engage turn-based battle with pirate         ┃",
             "  ┃    I = inspect / free look around                ┃",
             "  ┃    B = open trade screen (at station)            ┃",
             "  ┃                                                 ┃",
             "  ┃  SHIP MANAGEMENT:                               ┃",
-            "  ┃    F1 = Ship Hub (all management screens)      ┃",
-            "  ┃    F2-F5 = direct: Eng, Tac, Cargo, Crew     ┃",
+            "  ┃    F1 = Bridge (ship status + all subsystems)  ┃",
             "  ┃                                                 ┃",
             "  ┃  INTERFACE:                                     ┃",
             "  ┃    H = help        N = news      ~ = console    ┃",
@@ -218,17 +225,78 @@ class GalaxyMapApp(App):
         return "\n".join(out)
 
     def render_news_screen(self):
-        nt = ["  ┏━ GALAXY NEWS ━━━━━━━━━━━━━━━━━━━━━━┓"]
-        for e in self.galaxy.news[-8:]:
-            nt.append(f"  ┃ [{e.turn}] {e.headline:<35}┃")
-            nt.append(f"  ┃ {e.body:<45}┃")
-        nt.append("  ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛")
-        nt.append("  Press N or any key to return")
+        g = self.galaxy
+        s = self.ship
+        nt = ["┌" + "─" * 58 + "┐"]
+        nt.append("│" + "GALAXY NEWS".center(58) + "│")
+        nt.append("├" + "─" * 58 + "┤")
+
+        # ── News feed ──
+        if g.news:
+            nt.append("│" + "── Latest Reports ──".center(58) + "│")
+            for e in g.news[-6:]:
+                tag = f"[T{e.turn}]"
+                nt.append(f"│ {tag:<6} {e.headline:<20}{e.body:<30}│")
+        else:
+            nt.append("│  (no news)                                          │")
+
+        nt.append("├" + "─" * 58 + "┤")
+
+        # ── Diplomacy ──
+        wars = []
+        truces = []
+        for f1 in sorted(g.diplomacy):
+            for f2, rel in g.diplomacy[f1].items():
+                if f1 < f2:
+                    name1 = FACTIONS.get(f1, {}).get("name", f1)
+                    name2 = FACTIONS.get(f2, {}).get("name", f2)
+                    entry = f"{name1} vs {name2}"
+                    if rel == "war":
+                        wars.append(entry)
+                    elif rel in ("truce", "alliance"):
+                        truces.append(entry)
+        nt.append("│" + "── Diplomacy ──".center(58) + "│")
+        if wars:
+            for w in wars[:4]:
+                nt.append(f"│  ⚔ {w:<53}│")
+        if truces:
+            for tr in truces[:4]:
+                nt.append(f"│  ☮ {tr:<53}│")
+        if not wars and not truces:
+            nt.append("│  (no active conflicts)                              │")
+
+        nt.append("├" + "─" * 58 + "┤")
+
+        # ── Active Missions ──
+        nt.append("│" + "── Active Missions ──".center(58) + "│")
+        if s.missions:
+            for m in s.missions:
+                name = RESOURCES.get(m.resource, {}).get("name", m.resource)
+                nt.append(f"│  → {m.amount}x {name:<12} → {m.target_station:<15} +{m.reward}cr  │")
+        else:
+            nt.append("│  (no active missions — visit stations for contracts)│")
+
+        nt.append("├" + "─" * 58 + "┤")
+
+        # ── Station Economy ──
+        nt.append("│" + "── Market Snapshot (nearby) ──".center(58) + "│")
+        stations_near = g.stations_in_range(s.x if hasattr(s, 'x') else self.player_x,
+                                             s.y if hasattr(s, 'y') else self.player_y, 15)
+        if stations_near:
+            for st in stations_near[:5]:
+                summary = st.price_summary()
+                nt.append(f"│  {summary[:56]}")
+        else:
+            nt.append("│  (no stations within scan range)                    │")
+
+        nt.append("└" + "─" * 58 + "┘")
+        nt.append("  Press N or Esc to close")
+
         out = ["" for _ in range(HEIGHT)]
         cy = max(0, (HEIGHT - len(nt)) // 2)
-        for i, ht in enumerate(nt):
+        for i, line in enumerate(nt):
             if 0 <= cy + i < HEIGHT:
-                out[cy + i] = " " * (max(0, WIDTH - len(ht)) // 2) + ht
+                out[cy + i] = " " * (max(0, WIDTH - len(line)) // 2) + line
         return "\n".join(out)
 
     def render_pause_overlay(self):
@@ -276,26 +344,26 @@ class GalaxyMapApp(App):
     def render_interaction_menu(self):
         lines = self._build_map_lines()
         acts = self.interaction_actions or [("", "Nothing.", "", "")]
-        bw = 44
+        bw = 50
         ov = [
-            f"  ┏{'━' * (bw - 2)}┓",
-            f"  ┃{'INTERACTION MENU':^{bw - 2}}┃",
-            f"  ┃{'':^{bw - 2}}┃",
+            "┌" + "─" * (bw - 2) + "┐",
+            "│" + "ACTIONS".center(bw - 2) + "│",
+            "├" + "─" * (bw - 2) + "┤",
         ]
-        for _, l, _, _ in acts:
-            clean = l[:bw - 6]
-            ov.append(f"  ┃  {clean:<{bw - 6}}  ┃")
-        ov.extend([
-            f"  ┃{'':^{bw - 2}}┃",
-            f"  ┃{'Esc-Close':^{bw - 2}}┃",
-            f"  ┗{'━' * (bw - 2)}┛",
-        ])
-        cy = len(lines) // 2 - len(ov) // 2
+        for k, l, _, _ in acts:
+            clean = l[:bw - 8]
+            ov.append(f"│  {clean:<{bw - 6}}  │")
+        ov.append("├" + "─" * (bw - 2) + "┤")
+        ov.append("│" + "Esc=Close".center(bw - 2) + "│")
+        ov.append("└" + "─" * (bw - 2) + "┘")
+
+        cy = max(2, len(lines) // 2 - len(ov) // 2)
         for i, o in enumerate(ov):
             idx = cy + i
             if 0 <= idx < len(lines):
-                pad = max(0, len(lines[0]) - len(o)) // 2
-                lines[idx] = lines[idx][:pad] + o + lines[idx][pad + len(o):]
+                ln = lines[idx]
+                pad = max(0, len(ln) - len(o)) // 2
+                lines[idx] = ln[:pad] + o + ln[pad + len(o):]
         return "\n".join(lines)
 
     # -----------------------------------------------------------------------
@@ -531,33 +599,49 @@ class GalaxyMapApp(App):
         g = self.galaxy
         et = random.choice(["crusade", "invasion", "schism", "plague", "scandal", "treaty"])
         if et == "crusade":
-            g.add_news("Crusade!", "Imperium vs Chaos!"); out.append("[EVENT] Crusade!")
+            g.add_news("⚔ CRUSADE!", "Imperium launches crusade against Chaos!"); out.append("[EVENT] Crusade!")
+            if "chaos_cult" in g.diplomacy.get("imperium", {}):
+                g.diplomacy["imperium"]["chaos_cult"] = "war"
         elif et == "invasion":
-            for _ in range(random.randint(3, 5)):
+            count = random.randint(3, 5)
+            for _ in range(count):
                 x, y = g._random_passable()
                 g.pirates.append(PirateShip(x, y))
-            g.add_news("Invasion!", "Hostiles spawned."); out.append("[EVENT] Invasion!")
+            g.add_news(f"☠ RAID!", f"{count} pirate ships spawned in the sector."); out.append("[EVENT] Invasion!")
         elif et == "schism":
+            count = 0
             for s in g.stations:
                 if s.faction == "imperium" and random.random() < 0.3:
                     s.crisis_ticks = 10
-            g.add_news("Schism!", "Church divided."); out.append("[EVENT] Schism!")
+                    count += 1
+            g.add_news("⛪ SCHISM!", f"Imperium church divided! {count} stations in crisis."); out.append("[EVENT] Schism!")
         elif et == "plague":
             t = random.choice(list(FACTIONS))
+            count = 0
             for s in g.stations:
                 if s.faction == t:
                     s.crisis_ticks = 10
-            g.add_news(f"Plague at {t}!", f"Afflicted {t} stations."); out.append(f"[EVENT] Plague at {t}!")
+                    count += 1
+            name = FACTIONS.get(t, {}).get("name", t)
+            g.add_news(f"☣ PLAGUE at {name}!", f"{count} {name} stations quarantined."); out.append(f"[EVENT] Plague at {t}!")
         elif et == "scandal":
             f1, f2 = random.sample(list(FACTIONS), 2)
             if f2 in g.diplomacy.get(f1, {}):
                 g.diplomacy[f1][f2] = "war"
-            g.add_news("Scandal!", f"{f1} vs {f2} at war!"); out.append("[EVENT] Scandal!")
+                if f1 in g.diplomacy.get(f2, {}):
+                    g.diplomacy[f2][f1] = "war"
+            name1 = FACTIONS.get(f1, {}).get("name", f1)
+            name2 = FACTIONS.get(f2, {}).get("name", f2)
+            g.add_news(f"🔥 SCANDAL!", f"{name1} declares war on {name2}!"); out.append("[EVENT] Scandal!")
         elif et == "treaty":
             f1, f2 = random.sample(list(FACTIONS), 2)
             if f2 in g.diplomacy.get(f1, {}):
                 g.diplomacy[f1][f2] = "truce"
-            g.add_news("Treaty!", f"{f1} and {f2} sign truce."); out.append("[EVENT] Treaty!")
+                if f1 in g.diplomacy.get(f2, {}):
+                    g.diplomacy[f2][f1] = "truce"
+            name1 = FACTIONS.get(f1, {}).get("name", f1)
+            name2 = FACTIONS.get(f2, {}).get("name", f2)
+            g.add_news(f"☮ TREATY!", f"{name1} and {name2} sign truce."); out.append("[EVENT] Treaty!")
 
     def _check_random_events(self, out):
         if random.random() > 0.03:
@@ -620,6 +704,12 @@ class GalaxyMapApp(App):
                     acts.append(("j", f"(J)oin {st.name}", "_act_join_religion", f"Temple {dn}"))
                 if st and st.modules_for_sale:
                     acts.append(("p", f"Shop (P)arts [{len(st.modules_for_sale)} modules]", "_act_modules_shop", f"Station {dn}"))
+                if st and st.stype == "shipyard":
+                    acts.append(("y", f"(Y)ard — hulls/modules/upgrades", "_act_shipyard", f"Shipyard {dn}"))
+                if st and st.stype == "workshop":
+                    acts.append(("k", f"Wor(K)shop — craft {len(st.recipes_available)} items", "_act_workshop", f"Workshop {dn}"))
+                if st and st.stype == "tavern":
+                    acts.append(("t", f"(T)avern — hire crew [{len(st.crew_for_hire)} available]", "_act_tavern", f"Tavern {dn}"))
                 if st and st.missions:
                     acts.append(("v", f"Miss(V)ons [{len(st.missions)} available]", "_act_missions", f"Station {dn}"))
             elif ot == "planet":
@@ -639,7 +729,7 @@ class GalaxyMapApp(App):
         for p in self.galaxy.pirates:
             if p.alive and max(abs(p.x - px), abs(p.y - py)) <= rng:
                 nn = self._direction_name(p.x - px, p.y - py) if (p.x != px or p.y != py) else ""
-                acts.append(("f", f"(F)ire {p.name} [{nn}]", "_act_fire_pirate", f"Pirate {nn}"))
+                acts.append(("f", f"(F)ight {p.name} [{nn}]", "_act_battle_pirate", f"Pirate {nn}"))
 
         ob = self.galaxy.objects.get((px, py))
         if ob:
@@ -718,6 +808,27 @@ class GalaxyMapApp(App):
         else:
             self.logger.system("No missions.")
 
+    def _act_shipyard(self):
+        st = self.galaxy.get_station_at(self.player_x, self.player_y)
+        if st and st.stype == "shipyard":
+            self.push_screen(ShipyardScreen(st))
+        else:
+            self.logger.system("No shipyard.")
+
+    def _act_workshop(self):
+        st = self.galaxy.get_station_at(self.player_x, self.player_y)
+        if st and st.stype == "workshop":
+            self.push_screen(CraftingScreen(st))
+        else:
+            self.logger.system("No workshop.")
+
+    def _act_tavern(self):
+        st = self.galaxy.get_station_at(self.player_x, self.player_y)
+        if st and st.stype == "tavern":
+            self.push_screen(HireScreen(st))
+        else:
+            self.logger.system("No tavern.")
+
     def _act_scan_planet(self):
         self.logger.exploration(
             f"Scan: {random.choice(['rocky','gas giant','ice','desert','oceanic'])}, "
@@ -780,40 +891,11 @@ class GalaxyMapApp(App):
                 return
         self.logger.system("No NPC.")
 
-    def _act_fire_pirate(self):
+    def _act_battle_pirate(self):
         rng = self.ship.get_effective_stats().get("range", 1)
         for p in self.galaxy.pirates:
             if p.alive and max(abs(p.x - self.player_x), abs(p.y - self.player_y)) <= rng:
-                stats = self.ship.get_effective_stats()
-                dmg = stats.get("damage", 20)
-                acc = stats.get("accuracy", 80)
-                if not self._roll_hit(acc, 5):
-                    self.logger.combat(f"Missed {p.name}!")
-                    return
-                shield_before = p.shield_hp if hasattr(p, 'shield_hp') else 0
-                p.take_damage(dmg)
-                if hasattr(p, 'shield_hp') and shield_before > 0 and p.shield_hp < shield_before:
-                    self.logger.combat(f"Hit {p.name}! Shield absorbed. {p.hull}/{p.max_hull}")
-                else:
-                    self.logger.combat(f"Hit {p.name}! {p.hull}/{p.max_hull}")
-                if not p.alive:
-                    r = random.randint(50, 150)
-                    self.ship.credits += r
-                    self.ship.cargo.add("relic", 1)
-                    self.ship.reputation["free_traders"] = min(
-                        100, self.ship.reputation.get("free_traders", 0) + 2)
-                    self.logger.combat(f"{p.name} destroyed! +{r}cr")
-                else:
-                    # Pirate retaliates if within their range
-                    pirate_range = 1
-                    if max(abs(p.x - self.player_x), abs(p.y - self.player_y)) <= pirate_range:
-                        ret_dmg = 8
-                        evasion = self.ship.get_effective_stats().get("evasion", 0)
-                        if random.random() * 100 >= evasion:
-                            self.ship.take_damage(ret_dmg)
-                            self.logger.combat(f"{p.name} retaliates! -{ret_dmg}")
-                        else:
-                            self.logger.combat(f"{p.name} misses!")
+                self._initiate_battle(p)
                 return
         self.logger.system("No pirate.")
 
@@ -823,12 +905,18 @@ class GalaxyMapApp(App):
         chance = max(5, min(95, accuracy - evasion))
         return random.random() * 100 < chance
 
+    # ---------- battle initiation ----------
+
+    def _initiate_battle(self, enemy):
+        """Push the turn-based BattleScreen for a given enemy NPC."""
+        if not enemy or not enemy.alive:
+            return
+        ctrl = BattleController(self.ship, enemy, self)
+        self.push_screen(BattleScreen(ctrl))
+
     @staticmethod
     def _direction_name(dx, dy):
-        return {
-            (0, -1): "N", (0, 1): "S", (-1, 0): "W", (1, 0): "E",
-            (-1, -1): "NW", (1, -1): "NE", (-1, 1): "SW", (1, 1): "SE",
-        }.get((dx, dy), "?")
+        return DIR_LABELS.get((dx, dy), "?")
 
     # -----------------------------------------------------------------------
     # World tick
@@ -837,6 +925,10 @@ class GalaxyMapApp(App):
     def tick_world(self):
         self.logger.new_turn()
         self.ship.regen_shields()
+        # Fail expired missions
+        failed = self.ship.fail_expired_missions(self.galaxy.news)
+        for m in failed:
+            self.logger.system(f"⚠ Mission expired: {m.title}")
         nx, ny, evs, over = self.galaxy.tick(self.player_x, self.player_y, self.ship)
         self.player_x, self.player_y = nx, ny
         for ev in evs:
@@ -845,6 +937,14 @@ class GalaxyMapApp(App):
         self.galaxy.step_npc(self.player_x, self.player_y, self.ship, npc_ev)
         for ev in npc_ev:
             self._log_event(ev)
+        # Check for pirate-initiated battles
+        for ev in npc_ev:
+            if ev.startswith("__BATTLE__:"):
+                uid = int(ev.split(":")[1])
+                for p in self.galaxy.pirates:
+                    if p.uid == uid and p.alive:
+                        self._pending_battle = p
+                        break
         # Module damage notification
         dm = self.ship._last_damaged_module
         if dm:
@@ -907,6 +1007,11 @@ class GalaxyMapApp(App):
             self.ship.fuel = max(0, self.ship.fuel - 1)
             self.logger.movement(dn, self.player_x, self.player_y)
             self.tick_world()
+        # Check for pirate-initiated battle
+        if self._pending_battle:
+            enemy = self._pending_battle
+            self._pending_battle = None
+            self._initiate_battle(enemy)
         self.update_map()
         self.update_info()
 
@@ -929,10 +1034,18 @@ class GalaxyMapApp(App):
                 "trade buy/sell prices market scan/history "
                 "power modules list cargo cargo jettison/sellall "
                 "blackmarket list smuggle "
-                "reputation diplomacy declare war attack hail missions news exit"
+                "reputation diplomacy declare war attack hail battle missions news scan exit"
+            )
+            self.logger.system("── SHIP ──")
+            self.logger.system(
+                "ship buy/sell/switch | upgrade <id> | "
+                "craft <amt> <item> | "
+                "module shop/buy/sell/upgrade | "
+                "crew hire/fire/assign/list | "
+                "scan <active|deep> [name]"
             )
             self.logger.system("── KEYS ──")
-            self.logger.system("WASD E I F N H F1 F2 F5 ~ Esc")
+            self.logger.system("WASD E I F N H F1 ~ Esc")
 
         elif c == "scan":
             self.logger.system(
@@ -1193,23 +1306,9 @@ class GalaxyMapApp(App):
         elif c == "attack" and len(p) >= 2:
             name = " ".join(p[1:])
             npc = self.galaxy.get_npc_by_name(name)
-            rng = self.ship.get_effective_stats().get("range", 1)
-            if not npc or not npc.alive or max(abs(npc.x - self.player_x),
-                                                abs(npc.y - self.player_y)) > rng:
-                self.logger.system(f"No '{name}' in range ({rng})."); return
-            stats = self.ship.get_effective_stats()
-            dmg = stats.get("damage", 25)
-            acc = stats.get("accuracy", 70)
-            if not self._roll_hit(acc, 5):
-                self.logger.combat(f"Missed {npc.name}!"); return
-            npc.take_damage(dmg)
-            self.logger.combat(f"Hit {npc.name}! {npc.hull}/{npc.max_hull}")
-            if npc.faction in self.ship.reputation:
-                self.ship.reputation[npc.faction] = max(
-                    -100, self.ship.reputation[npc.faction] - 5)
-            if not npc.alive:
-                self.ship.credits += random.randint(50, 150)
-                self.logger.combat(f"{npc.name} destroyed!")
+            if not npc or not npc.alive:
+                self.logger.system(f"No '{name}' found."); return
+            self._initiate_battle(npc)
 
         elif c == "hail":
             self._act_hail_npc()
@@ -1251,6 +1350,201 @@ class GalaxyMapApp(App):
             self.state = GameState.NEWS
             self.update_map()
             self.update_info()
+
+        elif c == "battle" and len(p) >= 2 and p[1] == "start":
+            name = " ".join(p[2:]) if len(p) > 2 else ""
+            if not name:
+                self.logger.system("battle start <enemy_name>"); return
+            npc = self.galaxy.get_npc_by_name(name)
+            if not npc or not npc.alive:
+                self.logger.system(f"No '{name}' found."); return
+            self._initiate_battle(npc)
+
+        elif c == "battle" and len(p) >= 2 and p[1] == "debug":
+            if self._pending_battle:
+                p = self._pending_battle
+                self.logger.system(f"Pending battle: {p.name} hull:{p.hull}/{p.max_hull} sh:{p.shield_hp}")
+            else:
+                self.logger.system("No pending battle.")
+
+        elif c == "ship" and len(p) >= 2:
+            sub = p[1]
+            if sub == "buy" and len(p) >= 3:
+                msg, _ = self.ship.buy_hull(p[2])
+                self.logger.system(msg)
+            elif sub == "sell" and len(p) >= 3:
+                msg, _ = self.ship.sell_hull(p[2])
+                self.logger.system(msg)
+            elif sub == "switch" and len(p) >= 3:
+                msg, _ = self.ship.switch_hull(p[2])
+                self.logger.system(msg)
+            elif sub == "list":
+                for hid in self.ship.owned_hulls:
+                    cfg = SHIP_HULLS.get(hid, {})
+                    cur = " (active)" if hid == self.ship.hull_id else ""
+                    self.logger.system(f"  {cfg.get('name', hid)}{cur}")
+            else:
+                self.logger.system("ship buy/sell/switch/list")
+
+        elif c == "upgrade" and len(p) >= 2:
+            msg, _ = self.ship.apply_upgrade(p[1])
+            self.logger.system(msg)
+
+        elif c == "craft" and len(p) >= 2:
+            s = self.ship
+            amount = 1; target = p[1]
+            if len(p) >= 3:
+                try: amount = int(p[1]); target = p[2]
+                except ValueError: target = p[1]
+            msg, _ = s.craft(target, amount)
+            self.logger.system(msg)
+
+        elif c == "crew" and len(p) >= 2:
+            sub = p[1]
+            s = self.ship
+            if sub == "list":
+                self.logger.system(f"── Crew ({len(s.crew_members)}/{s._max_crew_slots()}) ──")
+                for cm in s.crew_members:
+                    a = " (on duty)" if cm.assigned else ""
+                    self.logger.system(f"  {cm.desc()}{a}")
+                self.logger.system("── Posts ──")
+                for post, name in s.crew.items():
+                    self.logger.system(f"  {post}: {name or '(vacant)'}")
+            elif sub == "hire" and len(p) >= 3:
+                name = " ".join(p[2:])
+                st = self.galaxy.get_nearest_station(self.player_x, self.player_y, 1)
+                if not st or st.stype != "tavern":
+                    self.logger.system("Must be at a tavern.")
+                else:
+                    found = None
+                    for cm in st.crew_for_hire:
+                        if cm.name.lower() == name.lower():
+                            found = cm; break
+                    if not found:
+                        self.logger.system(f"No '{name}' at this tavern.")
+                    else:
+                        st.crew_for_hire.remove(found)
+                        msg, _ = s.hire_crew(found)
+                        self.logger.system(msg)
+            elif sub == "fire" and len(p) >= 3:
+                name = " ".join(p[2:])
+                msg, _ = s.fire_crew(name)
+                self.logger.system(msg)
+            elif sub == "assign" and len(p) >= 4:
+                name = " ".join(p[2:-1])
+                post = p[-1]
+                msg, _ = s.assign_crew(name, post)
+                self.logger.system(msg)
+            else:
+                self.logger.system("crew list | hire <name> | fire <name> | assign <name> <post>")
+
+        elif c == "module" and len(p) >= 2:
+            sub = p[1]
+            if sub == "list":
+                self.logger.system("── Installed Modules ──")
+                for c2 in COMPARTMENTS:
+                    for m in self.ship.compartments[c2]["modules"]:
+                        sts = "ON" if m.active and not m.is_broken() else "OFF" if m.is_broken() else "ON"
+                        self.logger.system(f"  [{sts}] {m.name} ({c2}) Lv{m.level} dur:{m.durability}/{m.max_durability}")
+            elif sub == "upgrade" and len(p) >= 3:
+                target = p[2]
+                found = None
+                for c2 in COMPARTMENTS:
+                    for m in self.ship.compartments[c2]["modules"]:
+                        if m.id == target or m.name.lower().startswith(target):
+                            found = m; break
+                    if found: break
+                if not found:
+                    self.logger.system(f"No module '{target}'.")
+                elif not found.can_upgrade():
+                    self.logger.system(f"{found.name} already max level (5).")
+                else:
+                    cost = found.upgrade_cost()
+                    res = found.upgrade_resources()
+                    # Check resources
+                    ok = True
+                    for rid, amt in res.items():
+                        if self.ship.cargo.has(rid) < amt:
+                            self.logger.system(f"Need {amt} {rid}."); ok = False; break
+                    if ok and self.ship.credits < cost:
+                        self.logger.system(f"Need {cost}cr."); ok = False
+                    if ok:
+                        for rid, amt in res.items():
+                            self.ship.cargo.remove(rid, amt)
+                        self.ship.credits -= cost
+                        found.upgrade()
+                        self.logger.system(f"{found.name} upgraded to Lv{found.level}!")
+            elif sub == "shop":
+                st = self.galaxy.get_nearest_station(self.player_x, self.player_y, 1)
+                if st and st.modules_for_sale:
+                    self.logger.system(f"Modules at {st.name}:")
+                    for i, mid in enumerate(st.modules_for_sale, 1):
+                        info = SHIP_MODULES.get(mid, {})
+                        self.logger.system(f"  [{i}] {info.get('name', mid)} {info.get('cost',0)}cr")
+                else:
+                    self.logger.system("No modules for sale nearby.")
+            elif sub == "buy" and len(p) >= 3:
+                st = self.galaxy.get_nearest_station(self.player_x, self.player_y, 1)
+                if not st:
+                    self.logger.system("No station.")
+                else:
+                    try:
+                        idx = int(p[2]) - 1
+                        if 0 <= idx < len(st.modules_for_sale):
+                            mid = st.modules_for_sale[idx]
+                            info = SHIP_MODULES.get(mid, {})
+                            cost = info.get("cost", 0)
+                            if self.ship.credits < cost:
+                                self.logger.system(f"Need {cost}cr.")
+                            elif self.ship.install_module(mid):
+                                self.ship.credits -= cost
+                                st.modules_for_sale.pop(idx)
+                                self.logger.system(f"Installed {info.get('name', mid)}.")
+                            else:
+                                self.logger.system("Can't install.")
+                    except ValueError:
+                        self.logger.system("module buy <num>")
+            else:
+                self.logger.system("module list | upgrade <id> | shop | buy <num>")
+
+        elif c == "scan" and len(p) >= 2:
+            scan_type = p[1]  # active or deep
+            target_name = " ".join(p[2:]) if len(p) >= 3 else ""
+            if scan_type not in ("active", "deep"):
+                self.logger.system("scan <active|deep> [target_name]")
+            elif not target_name:
+                # Show nearby targets
+                rng = self.ship.get_effective_stats().get("sensor_range", 5) * 2
+                objs = self.galaxy.get_scannable_objects(self.player_x, self.player_y, rng)
+                if objs:
+                    self.logger.system(f"── Targets in sensor range ({rng}) ──")
+                    for d, lbl, obj in objs:
+                        self.logger.system(f"  {lbl:<25} d:{d}")
+                else:
+                    self.logger.system("No targets in range.")
+            else:
+                # Find target by name
+                rng = self.ship.get_effective_stats().get("sensor_range", 5) * 2
+                objs = self.galaxy.get_scannable_objects(self.player_x, self.player_y, rng)
+                target = None
+                for d, lbl, obj in objs:
+                    if target_name.lower() in obj.name.lower() if hasattr(obj, 'name') else False:
+                        target = obj; break
+                if not target:
+                    self.logger.system(f"Target '{target_name}' not found in range.")
+                else:
+                    result = self.ship.scan_target(target, scan_type, self.galaxy)
+                    if result.success:
+                        # Check for generated mission
+                        scan_msg = result.summary()
+                        self.logger.system(scan_msg)
+                        if result.info.get("cargo"):
+                            cg = result.info["cargo"]
+                            cg_str = ", ".join(f"{k}:{v}" for k, v in (cg.items() if isinstance(cg, dict) else []))
+                            if cg_str:
+                                self.logger.system(f"  Cargo: {cg_str}")
+                    else:
+                        self.logger.system(f"Scan failed: {result.info.get('error', 'unknown')}")
 
         elif c == "exit":
             self.exit()
@@ -1313,7 +1607,7 @@ class GalaxyMapApp(App):
             self.update_map(); self.update_info(); return
 
         if self.state == GameState.PAUSED:
-            if event.key == "c":
+            if event.key in ("escape", "c"):
                 self.state = GameState.PLAYING
                 self.update_map(); self.update_info()
             elif event.key == "r":
@@ -1323,12 +1617,7 @@ class GalaxyMapApp(App):
             return
 
         # --- PLAYING ---
-        if event.key == "escape":
-            if len(self.screen_stack) > 1:
-                return  # let the pushed screen handle it
-            self.state = GameState.PAUSED
-            self.update_map(); self.update_info()
-        elif self._interaction_active:
+        if self._interaction_active:
             if event.key == "escape":
                 self._interaction_active = False
                 self.update_map(); self.update_info()
@@ -1341,6 +1630,14 @@ class GalaxyMapApp(App):
                 else:
                     self._interaction_active = False
                     self.update_map(); self.update_info()
+        elif event.key == "escape":
+            if self._dismiss_handled_escape:
+                self._dismiss_handled_escape = False
+                return
+            if len(self.screen_stack) > 1:
+                return
+            self.state = GameState.PAUSED
+            self.update_map(); self.update_info()
         elif event.key in ("up", "w"):
             self.move_player(0, -1)
         elif event.key in ("down", "s"):
@@ -1389,20 +1686,12 @@ class GalaxyMapApp(App):
                         closest = p
                         closest_dist = d
             if closest:
-                self._act_fire_pirate()
+                self._initiate_battle(closest)
             else:
                 self.logger.system(f"No pirate in range ({rng}).")
             self.update_map(); self.update_info()
         elif event.key in ("f1", "F1"):
-            self.push_screen(ShipHubScreen())
-        elif event.key in ("f2", "F2"):
-            self.push_screen(EngineeringScreen())
-        elif event.key in ("f3", "F3"):
-            self.push_screen(TacticalScreen())
-        elif event.key in ("f4", "F4"):
-            self.push_screen(CargoScreen())
-        elif event.key in ("f5", "F5"):
-            self.push_screen(CrewScreen())
+            self.push_screen(BridgeScreen())
         elif event.key == " ":
             self.logger.system("Waiting…")
             self.tick_world()

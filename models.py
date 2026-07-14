@@ -5,7 +5,65 @@ from config import (
     WIDTH, HEIGHT, RESOURCES, FACTIONS, RACES, SHIP_MODULES,
     COMPARTMENTS, CONTRABAND, TILE_EMPTY, TILE_STAR, TILE_BLACK_HOLE,
     TILE_ASTEROIDS, TILE_PLANET, TILE_STATION, TILE_WORMHOLE,
+    SHIP_HULLS, UPGRADES, RECIPES, CREW_SPECIALTIES, CREW_NAMES,
+    STATION_TYPES, SCAN_SIGNAL_TYPES,
 )
+
+# ---------------------------------------------------------------------------
+# Module-level constants
+# ---------------------------------------------------------------------------
+
+MODULE_STAT_KEYS = {"power","speed","evasion","damage","accuracy",
+                    "shield_cap","shield_regen","sensor_range",
+                    "cargo_bonus","crew_efficiency","hull_bonus","range"}
+
+STARTER_MODULE_MAP = {
+    "reactor": "fusion_reactor",
+    "engine": "ion_drive",
+    "shield": "deflector_shield",
+    "sensor": "long_range_scanner",
+    "weapon": "laser_turret",
+}
+
+# ---------------------------------------------------------------------------
+# Scan result
+# ---------------------------------------------------------------------------
+
+class ScanResult:
+    def __init__(self, success, level="passive", info=None, scanned_obj=None):
+        self.success = success
+        self.level = level  # passive, active, deep
+        self.info = info or {}
+        self.scanned_obj = scanned_obj
+
+    def summary(self):
+        if not self.success:
+            return "Scan failed."
+        s = self.info
+        parts = [f"Scan: {s.get('type', 'unknown')}"]
+        if "hull" in s:
+            parts.append(f"H:{s['hull']}/{s.get('max_hull', '?')}")
+        if "shield" in s:
+            parts.append(f"S:{s['shield']}")
+        if "cargo" in s:
+            parts.append(f"Cargo:{s['cargo']}")
+        if "weapons" in s:
+            parts.append(f"Weapons:{s['weapons']}")
+        if "signals" in s:
+            parts.append(f"Signals:{s['signals']}")
+        return " | ".join(parts)
+
+CREW_STAT_MAP = {
+    "evasion": "evasion", "speed": "speed", "accuracy": "accuracy",
+    "damage": "damage", "sensor_range": "sensor_range",
+    "regen": "shield_regen",
+}
+
+UPGRADE_STAT_MAP = {
+    "cargo_bonus": "cargo_bonus",
+    "sensor_range": "sensor_range",
+    "speed": "speed",
+}
 
 # ---------------------------------------------------------------------------
 # Cargo
@@ -50,16 +108,15 @@ class CargoHold:
 # ---------------------------------------------------------------------------
 
 class ShipModule:
-    def __init__(self, mod_id: str):
+    def __init__(self, mod_id: str, level=1):
         info = SHIP_MODULES.get(mod_id, {})
         self.id = mod_id
         self.name = info.get("name", mod_id)
         self.comp = info.get("comp", "reactor")
         self.energy_consumption = info.get("energy", 0)
-        STAT_KEYS = {"power","speed","evasion","damage","accuracy",
-                     "shield_cap","shield_regen","sensor_range",
-                     "cargo_bonus","crew_efficiency","hull_bonus","range"}
-        self.stats = {k: v for k, v in info.items() if k in STAT_KEYS}
+        self.stats = {k: v for k, v in info.items() if k in MODULE_STAT_KEYS}
+        self.level = level
+        self._apply_level_bonus()
         self.durability = info.get("durability", 50)
         self.max_durability = self.durability
         self.cost = info.get("cost", 100)
@@ -69,6 +126,65 @@ class ShipModule:
     def is_broken(self):
         return self.durability <= 0
 
+    def upgrade_cost(self):
+        return int(self.cost * 0.6 * self.level)
+
+    def upgrade_resources(self):
+        return {"metal": self.level * 2, "electronics": self.level}
+
+    def can_upgrade(self):
+        return self.level < 5
+
+    def upgrade(self):
+        if not self.can_upgrade():
+            return False
+        self.level += 1
+        self._apply_level_bonus()
+        return True
+
+    def _apply_level_bonus(self):
+        if self.level <= 1:
+            return
+        info = SHIP_MODULES.get(self.id, {})
+        factor = 1.0 + (self.level - 1) * 0.10
+        self.stats = {k: int(info.get(k, 0) * factor) for k in MODULE_STAT_KEYS if k in info}
+        self.energy_consumption = int(info.get("energy", 0) * factor)
+        self.durability = int(info.get("durability", 50) * factor)
+        self.max_durability = self.durability
+
+# ---------------------------------------------------------------------------
+# Crew member
+# ---------------------------------------------------------------------------
+
+class CrewMember:
+    def __init__(self, name, specialty_id, race=None):
+        self.name = name
+        self.specialty = specialty_id
+        self.race = race or random.choice(list(RACES))
+        self.level = 1
+        self.experience = 0
+        spec = CREW_SPECIALTIES.get(specialty_id, {})
+        self.post = spec.get("posts", [specialty_id])[0]
+        self.bonus = dict(spec.get("bonus", {}))
+        self.assigned = False
+        self.salary = random.randint(20, 60) * self.level
+
+    def xp_for_next(self):
+        return self.level * 50
+
+    def add_xp(self, amount):
+        self.experience += amount
+        if self.experience >= self.xp_for_next():
+            self.experience -= self.xp_for_next()
+            self.level += 1
+            # Scale bonuses
+            for k in self.bonus:
+                self.bonus[k] = int(self.bonus[k] * (1 + (self.level - 1) * 0.15))
+
+    def desc(self):
+        spec_name = CREW_SPECIALTIES.get(self.specialty, {}).get("name", self.specialty)
+        return f"{self.name} ({spec_name} Lv{self.level})"
+
 # ---------------------------------------------------------------------------
 # Player ship
 # ---------------------------------------------------------------------------
@@ -76,8 +192,17 @@ class ShipModule:
 class PlayerShip:
     def __init__(self, name="Endeavour", hull=100):
         self.name = name
-        self.hull = hull
-        self.max_hull = hull
+        self.hull_id = "corvette"
+        hull_cfg = SHIP_HULLS.get("corvette", {})
+        # hull parameter overrides the config hull (backward compat with tests)
+        if hull != 100:
+            self.hull = hull
+            self.max_hull = hull
+        else:
+            self.hull = hull_cfg.get("hull", hull)
+            self.max_hull = self.hull
+        self.owned_hulls = ["corvette"]
+        self.upgrades = {}  # upgrade_id -> True
         self.shield_hp = 30
         self.fuel = 80
         self.credits = 1000
@@ -87,17 +212,279 @@ class PlayerShip:
         self.reputation = {f: 0 for f in FACTIONS}
         self.reputation["pirates"] = -10
         self.skill_trade = 0
-        self.cargo = CargoHold(50)
-        # Compartments: {name: {"power": int, "modules": [ShipModule]}}
-        self.compartments = {c: {"power": 5, "modules": []} for c in COMPARTMENTS}
-        self.compartments["reactor"]["modules"].append(ShipModule("fusion_reactor"))
-        self.compartments["engine"]["modules"].append(ShipModule("ion_drive"))
-        self.compartments["shield"]["modules"].append(ShipModule("deflector_shield"))
-        self.compartments["sensor"]["modules"].append(ShipModule("long_range_scanner"))
-        # Crew posts
+        # Crew: assigned posts + roster
         self.crew = {"Pilot": None, "Engineer": None, "Tactical": None, "Scientist": None}
+        self.crew_members: list[CrewMember] = []
+        # Calculate cargo from hull + upgrades
+        cb = self._upgrade_bonus("cargo_bonus", 0)
+        self.cargo = CargoHold(hull_cfg.get("cargo", 50) + cb)
+        # Compartments
+        self._init_compartments(hull_cfg)
         self._last_damaged_module = None
         self.missions: list[Mission] = []
+        self.tracked_mission = None
+
+    def _init_compartments(self, hull_cfg):
+        """Set up compartments based on hull config."""
+        num_comps = hull_cfg.get("compartments", 5)
+        priority = ["reactor", "engine", "shield", "sensor", "weapon",
+                    "cargo", "life_support"]
+        active = set(priority[:num_comps])
+        self.compartments = {}
+        for c in COMPARTMENTS:
+            self.compartments[c] = {"power": 5, "modules": []}
+        for comp, mod_id in STARTER_MODULE_MAP.items():
+            if comp in active:
+                self.compartments[comp]["modules"].append(ShipModule(mod_id))
+
+    # ---------- Upgrade helpers ----------
+
+    def _upgrade_bonus(self, key, default=0):
+        total = default
+        for uid in self.upgrades:
+            cfg = UPGRADES.get(uid, {})
+            total += cfg.get("bonus", {}).get(key, 0)
+        return total
+
+    def _crew_bonus(self, key, default=0):
+        total = default
+        for post, member_name in self.crew.items():
+            if not member_name:
+                continue
+            cm = self._get_crew(member_name)
+            if cm and cm.assigned:
+                total += cm.bonus.get(key, 0)
+        return total
+
+    def _get_crew(self, name):
+        for cm in self.crew_members:
+            if cm.name.lower() == name.lower():
+                return cm
+        return None
+
+    # ---------- Hull management ----------
+
+    def buy_hull(self, hull_id):
+        """Buy a new hull at a shipyard. Returns (message, success)."""
+        if hull_id in self.owned_hulls:
+            return f"Already own {hull_id}.", False
+        cfg = SHIP_HULLS.get(hull_id)
+        if not cfg:
+            return f"Unknown hull '{hull_id}'.", False
+        if self.credits < cfg["cost"]:
+            return f"Need {cfg['cost']}cr, have {self.credits}cr.", False
+        self.credits -= cfg["cost"]
+        self.owned_hulls.append(hull_id)
+        return f"Purchased {cfg['name']} for {cfg['cost']}cr.", True
+
+    def sell_hull(self, hull_id):
+        """Sell a hull at a shipyard (50% price). Cannot sell current hull."""
+        if hull_id not in self.owned_hulls:
+            return f"Don't own {hull_id}.", False
+        if hull_id == self.hull_id:
+            return "Cannot sell current hull.", False
+        cfg = SHIP_HULLS.get(hull_id)
+        if not cfg:
+            return f"Unknown hull '{hull_id}'.", False
+        price = cfg["cost"] // 2
+        self.credits += price
+        self.owned_hulls.remove(hull_id)
+        return f"Sold {cfg['name']} for {price}cr.", True
+
+    def switch_hull(self, hull_id):
+        """Switch to an owned hull, transferring modules where possible."""
+        if hull_id not in self.owned_hulls:
+            return f"Don't own {hull_id}.", False
+        cfg = SHIP_HULLS.get(hull_id)
+        if not cfg:
+            return f"Unknown hull '{hull_id}'.", False
+        # Collect all current modules
+        all_modules = []
+        for c in COMPARTMENTS:
+            all_modules.extend(self.compartments[c]["modules"])
+        # Set new hull
+        self.hull_id = hull_id
+        self.max_hull = cfg["hull"]
+        self.hull = min(self.hull, self.max_hull)
+        base_cap = cfg.get("cargo", 50)
+        cb = self._upgrade_bonus("cargo_bonus", 0)
+        self.cargo.capacity = base_cap + cb
+        # Re-init compartments and reinstall what fits
+        self._init_compartments(cfg)
+        # Try to place excess modules
+        leftover = []
+        for m in all_modules:
+            if m.comp in self.compartments and len(self.compartments[m.comp]["modules"]) <= 1:
+                # Replace starter module with this one
+                existing = [x for x in self.compartments[m.comp]["modules"]]
+                if len(existing) == 1 and existing[0].id in ("fusion_reactor", "ion_drive",
+                        "deflector_shield", "long_range_scanner", "laser_turret"):
+                    self.compartments[m.comp]["modules"] = [m]
+                    placed = True
+            if not placed:
+                leftover.append(m)
+        return f"Switched to {cfg['name']}. {len(leftover)} modules moved to cargo (not implemented).", True
+
+    # ---------- Permanent upgrades ----------
+
+    def has_upgrade(self, upgrade_id):
+        return self.upgrades.get(upgrade_id, False)
+
+    def apply_upgrade(self, upgrade_id):
+        """Apply a permanent hull upgrade. Returns (message, success)."""
+        if self.has_upgrade(upgrade_id):
+            return f"Already have {upgrade_id}.", False
+        cfg = UPGRADES.get(upgrade_id)
+        if not cfg:
+            return f"Unknown upgrade '{upgrade_id}'.", False
+        if self.credits < cfg["cost"]:
+            return f"Need {cfg['cost']}cr, have {self.credits}cr.", False
+        # Check resources
+        for rid, amt in cfg["inputs"].items():
+            if self.cargo.has(rid) < amt:
+                return f"Need {amt} {rid}.", False
+        # Consume
+        self.credits -= cfg["cost"]
+        for rid, amt in cfg["inputs"].items():
+            self.cargo.remove(rid, amt)
+        self.upgrades[upgrade_id] = True
+        # Apply immediate bonuses
+        bonus = cfg.get("bonus", {})
+        if "max_hull" in bonus:
+            self.max_hull += bonus["max_hull"]
+            self.hull = min(self.hull + bonus["max_hull"], self.max_hull)
+        if "cargo_bonus" in bonus:
+            self.cargo.capacity += bonus["cargo_bonus"]
+        return f"Installed {cfg['name']}.", True
+
+    # ---------- Crafting ----------
+
+    def craft(self, recipe_id, amount=1):
+        """Craft items from recipe. Returns (message, success)."""
+        recipe = RECIPES.get(recipe_id)
+        if not recipe:
+            return f"Unknown recipe '{recipe_id}'.", False
+        # Check resources
+        inputs = recipe["inputs"]
+        for rid, amt in inputs.items():
+            needed = amt * amount
+            if self.cargo.has(rid) < needed:
+                return f"Need {needed} {rid} (have {self.cargo.has(rid)}).", False
+        # Check output space
+        output_id = recipe_id
+        if self.cargo.free() < amount:
+            return f"Need {amount} cargo space (have {self.cargo.free()}).", False
+        # Consume inputs
+        for rid, amt in inputs.items():
+            self.cargo.remove(rid, amt * amount)
+        # Create output
+        self.cargo.add(output_id, amount)
+        return f"Crafted {amount}x {recipe['name']}.", True
+
+    # ---------- Crew management ----------
+
+    def hire_crew(self, crew_member):
+        """Hire a crew member. Returns (message, success)."""
+        if len(self.crew_members) >= self._max_crew_slots():
+            return "Crew quarters full.", False
+        if self.credits < crew_member.salary:
+            return f"Need {crew_member.salary}cr salary.", False
+        self.credits -= crew_member.salary
+        self.crew_members.append(crew_member)
+        return f"Hired {crew_member.name} ({crew_member.specialty}).", True
+
+    def fire_crew(self, name):
+        """Fire a crew member by name."""
+        cm = self._get_crew(name)
+        if not cm:
+            return f"No crew named '{name}'.", False
+        # Unassign if on duty
+        for post, member in list(self.crew.items()):
+            if member and member.lower() == name.lower():
+                self.crew[post] = None
+                cm.assigned = False
+        self.crew_members.remove(cm)
+        return f"Fired {cm.name}.", True
+
+    def assign_crew(self, name, post):
+        """Assign a crew member to a post. Returns (message, success)."""
+        cm = self._get_crew(name)
+        if not cm:
+            return f"No crew named '{name}'.", False
+        if post not in self.crew:
+            return f"Unknown post '{post}'.", False
+        spec_posts = CREW_SPECIALTIES.get(cm.specialty, {}).get("posts", [])
+        if post not in spec_posts:
+            spec_name = CREW_SPECIALTIES.get(cm.specialty, {}).get("name", cm.specialty)
+            return f"{cm.name} ({spec_name}) cannot take '{post}' post.", False
+        # Unassign from current post
+        for p, member in list(self.crew.items()):
+            if member and member.lower() == name.lower():
+                self.crew[p] = None
+                cm.assigned = False
+        # Assign to new post
+        old = self.crew[post]
+        if old:
+            old_cm = self._get_crew(old)
+            if old_cm:
+                old_cm.assigned = False
+        self.crew[post] = cm.name
+        cm.assigned = True
+        return f"{cm.name} assigned to {post}.", True
+
+    def _max_crew_slots(self):
+        """Base crew slots from life support module."""
+        base = 2
+        for m in self.compartments.get("life_support", {}).get("modules", []):
+            if m.active and not m.is_broken():
+                base += m.stats.get("crew_efficiency", 0) // 5
+        return base
+
+    def use_item(self, item_id, amount=1):
+        """Use a consumable item from cargo. Returns (message, success)."""
+        BONUSES = {
+            "repair_kit": {"hull": 20, "msg": "Restored {} hull"},
+            "fuel_cell": {"fuel": 10, "msg": "Refined {} fuel"},
+            "shield_booster": {"shield": 15, "msg": "Boosted {} shields"},
+        }
+        bonus = BONUSES.get(item_id)
+        if not bonus:
+            return f"Item '{item_id}' is not consumable.", False
+        have = self.cargo.has(item_id)
+        if have < amount:
+            return f"Need {amount}, have {have}.", False
+        if not self.cargo.remove(item_id, amount):
+            return "Cargo error.", False
+        applied = 0
+        if "hull" in bonus:
+            prev = self.hull
+            self.hull = min(self.max_hull, self.hull + bonus["hull"] * amount)
+            applied += self.hull - prev
+        if "fuel" in bonus:
+            self.fuel += bonus["fuel"] * amount
+            applied += bonus["fuel"] * amount
+        if "shield" in bonus:
+            cap = self.get_effective_stats().get("shield_cap", 0)
+            prev = self.shield_hp
+            self.shield_hp = min(cap, self.shield_hp + bonus["shield"] * amount)
+            applied += self.shield_hp - prev
+        return (bonus["msg"].format(applied), True)
+
+    def install_module_from_cargo(self, mod_id):
+        """Install a module from cargo into matching compartment. Returns (message, success)."""
+        have = self.cargo.has(mod_id)
+        if not have:
+            return f"No '{mod_id}' in cargo.", False
+        info = SHIP_MODULES.get(mod_id)
+        if not info:
+            return f"Unknown module '{mod_id}'.", False
+        comp = info.get("comp", "reactor")
+        if comp not in self.compartments:
+            return f"No '{comp}' compartment.", False
+        if not self.cargo.remove(mod_id, 1):
+            return "Cargo error.", False
+        self.compartments[comp]["modules"].append(ShipModule(mod_id))
+        return f"Installed {info.get('name', mod_id)} in {comp}.", True
 
     def take_damage(self, amount):
         """Deal damage: shields absorb first, remainder to hull. Returns True if alive."""
@@ -129,6 +516,10 @@ class PlayerShip:
         cap = self.get_effective_stats().get("shield_cap", 0)
         rate = self.get_effective_stats().get("shield_regen", 0)
         self.shield_hp = min(cap, self.shield_hp + rate)
+        # Crew hull regen
+        hr = self._crew_bonus("hull_regen", 0)
+        if hr > 0 and self.hull < self.max_hull:
+            self.hull = min(self.max_hull, self.hull + hr)
 
     def repair_module(self, comp_name, cost_metal=2, cost_electronics=1):
         """Repair the most damaged module in a compartment. Returns (msg, cost)."""
@@ -145,10 +536,12 @@ class PlayerShip:
         return f"{m.name} {status} (+{repair_amount} dur).", cost_metal + cost_electronics
 
     def total_power_generated(self):
-        return sum(
+        base = sum(
             m.stats.get("power", 0)
             for m in self.compartments["reactor"]["modules"]
         )
+        bonus = self._upgrade_bonus("power_bonus", 0)
+        return base + bonus
 
     def total_power_consumed(self):
         return sum(
@@ -173,6 +566,12 @@ class PlayerShip:
                 if m.active and not m.is_broken():
                     for k in stats:
                         stats[k] += m.stats.get(k, 0) * eff
+        # Apply upgrade bonuses
+        for bonus_key, stat_key in UPGRADE_STAT_MAP.items():
+            stats[stat_key] += self._upgrade_bonus(bonus_key, 0)
+        # Apply crew bonuses
+        for bonus_key, stat_key in CREW_STAT_MAP.items():
+            stats[stat_key] += self._crew_bonus(bonus_key, 0)
         return {k: int(v) for k, v in stats.items()}
 
     def check_missions(self, station):
@@ -183,10 +582,106 @@ class PlayerShip:
                 if self.cargo.has(m.resource) >= m.amount:
                     self.cargo.remove(m.resource, m.amount)
                     self.credits += m.reward
+                    m.status = "completed"
                     completed.append((m, f"Mission complete! Delivered {m.amount} {m.resource} to {station.name}. +{m.reward}cr"))
         for m, _ in completed:
             self.missions.remove(m)
         return completed
+
+    MAX_MISSIONS = 5
+
+    def add_mission(self, mission):
+        """Accept a mission. Returns (message, success)."""
+        if len(self.missions) >= self.MAX_MISSIONS:
+            return "Mission log full (max 5).", False
+        if mission.id in (m.id for m in self.missions):
+            return "Already have this mission.", False
+        mission.status = "active"
+        self.missions.append(mission)
+        return f"Accepted: {mission.title}", True
+
+    def abandon_mission(self, mission_id):
+        """Abandon a mission by id. Returns (message, success)."""
+        for m in self.missions:
+            if m.id == mission_id:
+                m.status = "abandoned"
+                self.missions.remove(m)
+                if m.giver_station:
+                    penalty = -10
+                    self.reputation[m.giver_station.faction] = \
+                        self.reputation.get(m.giver_station.faction, 0) + penalty
+                return f"Abandoned: {m.title}. Reputation penalty applied.", True
+        return "Mission not found.", False
+
+    def track_mission(self, mission_id):
+        """Set tracked mission. Returns mission or None."""
+        for m in self.missions:
+            if m.id == mission_id:
+                self.tracked_mission = mission_id
+                return m
+        self.tracked_mission = None
+        return None
+
+    def has_mission(self, mission_id):
+        return any(m.id == mission_id for m in self.missions)
+
+    def fail_expired_missions(self, galaxy_news):
+        """Tick deadlines, fail expired missions. Returns list of fail messages."""
+        failed = []
+        for m in list(self.missions):
+            if m.status != "active":
+                continue
+            m.ticks -= 1
+            if m.ticks <= 0:
+                m.status = "failed"
+                self.missions.remove(m)
+                failed.append(m)
+                if galaxy_news is not None:
+                    galaxy_news.append(NewsEntry("MISSION FAILED", m.title))
+        return failed
+
+    def scan_target(self, target, scan_type="active", galaxy=None):
+        """Scan a target object. Returns ScanResult."""
+        from config import SCAN_ACTIVE_COST, SCAN_DEEP_COST
+        cost = SCAN_DEEP_COST if scan_type == "deep" else SCAN_ACTIVE_COST
+        if self._crew_bonus("scanner", 0):
+            cost = max(1, cost - self._crew_bonus("scanner", 0) // 5)
+        if scan_type != "passive":
+            spare = self.total_power_generated() - self.total_power_consumed()
+            if spare < cost:
+                return ScanResult(False, info={"error": f"Need {cost} spare power (have {spare})."})
+        sensor_range = self.get_effective_stats().get("sensor_range", 5)
+        rng_map = {"active": sensor_range * 2, "deep": sensor_range, "passive": sensor_range}
+        rng = rng_map.get(scan_type, sensor_range)
+        # Build info dict
+        info = {"type": type(target).__name__, "scanned": True, "scan_level": scan_type}
+        if hasattr(target, "hull"):
+            info["hull"] = target.hull
+            info["max_hull"] = getattr(target, "max_hull", target.hull)
+        if hasattr(target, "shield_hp"):
+            info["shield"] = target.shield_hp
+        if hasattr(target, "cargo") and scan_type in ("active", "deep"):
+            info["cargo"] = dict(target.cargo.items) if hasattr(target.cargo, "items") else {}
+        if hasattr(target, "compartments") and scan_type == "deep":
+            comps = {}
+            for c in COMPARTMENTS:
+                mods = target.compartments[c]["modules"]
+                comps[c] = [{"name": m.name, "dur": m.durability, "max": m.max_durability, "broken": m.is_broken()} for m in mods]
+            info["compartments"] = comps
+        if hasattr(target, "name"):
+            info["name"] = target.name
+        if hasattr(target, "faction"):
+            info["faction"] = target.faction
+        # Mark target as scanned
+        if hasattr(target, "scanned"):
+            target.scanned = True
+        if hasattr(target, "scan_level"):
+            target.scan_level = scan_type
+        # Check if scanning generates a mission
+        generated_mission = None
+        if galaxy and scan_type in ("active", "deep"):
+            generated_mission = galaxy.scan_generate_missions(target, scan_type, self)
+        return ScanResult(True, scan_type, info, scanned_obj=target)
 
     def install_module(self, mod_id: str) -> bool:
         info = SHIP_MODULES.get(mod_id)
@@ -219,6 +714,7 @@ class NPCShip:
         self.cargo = CargoHold(cc)
         self.credits = 500
         self.alive = True
+        self.scanned = False
 
     def take_damage(self, amount):
         if self.shield_hp > 0:
@@ -278,7 +774,8 @@ class Station:
     def __init__(self, x, y, name=None, stype=None, faction=None):
         self.x, self.y = x, y
         self.name = name or random.choice(self.NAMES)
-        self.stype = stype or random.choice(["trade_hub","industrial","research","temple"])
+        stype_choices = list(STATION_TYPES)
+        self.stype = stype or random.choice(stype_choices)
         self.faction = faction or random.choice(list(FACTIONS))
         self.religion = None
         self.inventory: dict[str, int] = {}
@@ -287,9 +784,32 @@ class Station:
         self.price_history: dict[str, list] = {r: [] for r in RESOURCES}
         self.missions: list = []
         self.modules_for_sale: list[str] = []
+        self.hulls_for_sale: list[str] = []    # shipyard
+        self.recipes_available: list[str] = []  # workshop
+        self.crew_for_hire: list = []           # tavern
+        self.scanned = False
         self._init_inventory()
         self._init_modules()
+        self._init_type_specific()
         self.update_prices()
+
+    def _init_type_specific(self):
+        """Init station-type-specific offerings."""
+        st_cfg = STATION_TYPES.get(self.stype, {})
+        if self.stype == "shipyard":
+            hulls = st_cfg.get("hulls", [])
+            # Filter a subset of hulls based on faction/random
+            self.hulls_for_sale = random.sample(hulls, min(random.randint(2, 4), len(hulls)))
+        elif self.stype == "workshop":
+            recipes = st_cfg.get("recipes", [])
+            self.recipes_available = random.sample(recipes, min(random.randint(2, 4), len(recipes)))
+        elif self.stype == "tavern":
+            slots = st_cfg.get("crew_slots", 3)
+            specs = list(CREW_SPECIALTIES)
+            for _ in range(random.randint(1, slots)):
+                name = random.choice(CREW_NAMES) + str(random.randint(1, 99))
+                spec = random.choice(specs)
+                self.crew_for_hire.append(CrewMember(name, spec))
 
     def _init_inventory(self):
         for r in RESOURCES:
@@ -307,16 +827,27 @@ class Station:
 
     def gen_missions(self, all_stations):
         """Generate deliver missions to other stations."""
-        import random
         others = [s for s in all_stations if s.name != self.name]
-        if not others or len(self.missions) >= 3:
+        if not others or len(self.missions) >= 4:
             return
         target = random.choice(others)
-        rid = random.choice(list(RESOURCES))
-        amt = random.randint(3, 8)
-        price = RESOURCES[rid]["base_price"]
-        reward = price * amt * random.randint(2, 4)
-        self.missions.append(Mission("deliver", rid, amt, target.name, reward, random.randint(20, 40)))
+        et = random.choice(["deliver", "deliver", "bounty"])
+        if et == "deliver":
+            rid = random.choice(list(RESOURCES))
+            amt = random.randint(3, 8)
+            price = RESOURCES[rid]["base_price"]
+            reward = price * amt * random.randint(2, 4)
+            desc = f"Deliver {amt}x {RESOURCES[rid]['name']} to {target.name}."
+            m = Mission("deliver", rid, amt, target.name, reward,
+                       random.randint(20, 40), title=desc[:44],
+                       description=desc, giver_station=self)
+        else:  # bounty
+            bounty = random.randint(3, 6) * 50
+            desc = f"Hunt pirates near {self.name}. Reward: {bounty}cr."
+            m = Mission("bounty", "credits", 1, self.name, bounty,
+                       random.randint(15, 30), title=desc[:44],
+                       description=desc, giver_station=self)
+        self.missions.append(m)
 
     def update_prices(self):
         for rid, info in RESOURCES.items():
@@ -426,6 +957,24 @@ class Station:
                 parts.append(f"{rid}:{sp}")
         return f"  {self.name}[{self.stype}] {self.faction}: {','.join(parts[:5])}"
 
+    def buy_all_junk(self, ship):
+        """Buy all raw resources from player. Returns summary message."""
+        total_credits = 0
+        sold_items = []
+        for rid, amt in list(ship.cargo.items.items()):
+            info = RESOURCES.get(rid, {})
+            if info.get("cat") == "raw":
+                price, _ = self.price_for_player(rid, False, ship)
+                t = price * amt
+                if ship.cargo.remove(rid, amt):
+                    ship.credits += t
+                    total_credits += t
+                    sold_items.append(f"{amt}x {info.get('name', rid)}")
+                    self.inventory[rid] = self.inventory.get(rid, 0) + amt
+        if not sold_items:
+            return "No raw resources to sell.", False
+        return f"Sold {', '.join(sold_items)} for {total_credits}cr.", True
+
 # ---------------------------------------------------------------------------
 # Events
 # ---------------------------------------------------------------------------
@@ -443,13 +992,34 @@ class NewsEntry:
         self.turn = turn
 
 class Mission:
-    def __init__(self, mtype, resource, amount, target_station, reward, ticks=30):
-        self.mtype = mtype  # "deliver"
+    _id_counter = 0
+
+    def __init__(self, mtype, resource, amount, target_station, reward, ticks=30,
+                 title="", description="", giver_station=None):
+        Mission._id_counter += 1
+        self.id = Mission._id_counter
+        self.mtype = mtype  # "deliver", "bounty", "exploration", "trade"
         self.resource = resource
         self.amount = amount
         self.target_station = target_station  # station name string
         self.reward = reward
-        self.ticks = ticks
+        self.ticks = ticks  # remaining turns (deadline)
+        self.status = "active"  # active, completed, failed, abandoned
+        self.progress = 0  # e.g. how much already delivered
+        self.title = title or f"{mtype.title()}: {amount}x {resource}"
+        self.description = description or f"Deliver {amount} {resource} to {target_station}."
+        self.giver_station = giver_station  # Station object or None
+
+    def is_expired(self):
+        return self.ticks <= 0 and self.status == "active"
+
+    def check_completion(self, ship):
+        """Returns True if mission objective is met."""
+        if self.status != "active":
+            return False
+        if self.mtype == "deliver":
+            return self.progress >= self.amount
+        return False
 
 # ---------------------------------------------------------------------------
 # Galaxy
@@ -647,6 +1217,52 @@ class Galaxy:
     def stations_in_range(self, x, y, r):
         return [s for s in self.stations if max(abs(s.x - x), abs(s.y - y)) <= r]
 
+    def get_scannable_objects(self, x, y, radius):
+        """Return list of (distance, label, object) within radius."""
+        results = []
+        for p in self.pirates:
+            if p.alive:
+                d = max(abs(p.x - x), abs(p.y - y))
+                if d <= radius:
+                    results.append((d, f"☠ Pirate {p.name}", p))
+        for t in self.traders:
+            if t.alive:
+                d = max(abs(t.x - x), abs(t.y - y))
+                if d <= radius:
+                    results.append((d, f"T Trader {t.name}", t))
+        for s in self.stations:
+            d = max(abs(s.x - x), abs(s.y - y))
+            if d <= radius:
+                results.append((d, f"◈ Station {s.name}", s))
+        results.sort(key=lambda x: x[0])
+        return results
+
+    def scan_generate_missions(self, target, scan_type, player_ship):
+        """Scan may reveal hidden missions. Returns a Mission or None."""
+        if not hasattr(target, "name"):
+            return None
+        from config import SCAN_SIGNAL_TYPES
+        sig_type = random.choice(list(SCAN_SIGNAL_TYPES))
+        cfg = SCAN_SIGNAL_TYPES[sig_type]
+        if random.random() * 100 > cfg["weight"]:
+            return None
+        # Generate a title giver string
+        giver_label = f"Scan: {cfg['title']} @ {target.name}"
+        mission_types = cfg["missions"]
+        mt = random.choice(mission_types)
+        # Craft a simple mission
+        rid = random.choice(list(RESOURCES))
+        amt = random.randint(1, 5)
+        reward = amt * RESOURCES[rid]["base_price"] * random.randint(3, 6)
+        from config import FACTIONS
+        target_station_name = target.name if hasattr(target, "name") else "Unknown"
+        m = Mission(mt if mt in ("deliver", "bounty") else "deliver",
+                     rid, amt, target_station_name, reward, random.randint(20, 40),
+                     title=f"{cfg['title']} @ {target.name}",
+                     description=f"Discovered via {scan_type} scan of {target.name}.",
+                     giver_station=giver_label)
+        return m
+
     def reset_npc_counter(self):
         global NPCShip_id_counter
         NPCShip_id_counter = 0
@@ -721,19 +1337,7 @@ class Galaxy:
                 tx, ty, tt = min(targets, key=lambda c: max(abs(p.x - c[0]), abs(p.y - c[1])))
                 if max(abs(p.x - tx), abs(p.y - ty)) == 1:
                     if tt == "player":
-                        evasion = ps.get_effective_stats().get("evasion", 0)
-                        if random.random() * 100 < evasion:
-                            out.append(f"Pirate {p.name} misses!")
-                        else:
-                            ps.take_damage(10)
-                            out.append(f"Pirate {p.name} attacks!")
-                            if ps.cargo.items:
-                                sid = random.choice(list(ps.cargo.items.keys()))
-                                sa = max(1, ps.cargo.has(sid) // 5)
-                                ps.cargo.remove(sid, sa)
-                                out.append(f"Stole {sa} {sid}!")
-                            if ps.hull <= 0:
-                                out.append("Destroyed.")
+                        out.append(f"__BATTLE__:{p.uid}")
                     else:
                         for t2 in self.traders:
                             if t2.alive and t2.x == tx and t2.y == ty:
