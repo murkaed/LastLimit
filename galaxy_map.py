@@ -45,15 +45,23 @@ class GameState(Enum):
 class GalaxyMapApp(App):
     CSS = """
     #map { height: 1fr; content-align: center middle; }
-    #info-panel { height: 15; border: solid green; margin: 1; padding: 0 1; }
-    #log { height: 10; border: solid yellow; margin: 1; padding: 0 1; color: yellow; }
-    CommandScreen Input { dock: bottom; margin: 1 2; }
-    CargoScreen DataTable { height: 1fr; }
-    TradeScreen Input { dock: bottom; margin: 1 2; }
-    BridgeScreen Static, EngineeringScreen Static, TacticalScreen Static, CrewScreen Static {
-        border: solid $primary; margin: 1; padding: 0 1;
+    #info-panel {
+        height: 12; border: solid green; margin: 1 2; padding: 0 1;
+        background: $surface;
     }
-    EngineeringScreen Input, TacticalScreen Input, CrewScreen Input { dock: bottom; margin: 1 2; }
+    #log { height: 10; border: solid yellow; margin: 1 2; padding: 0 1; color: yellow; }
+    CommandScreen Input { dock: bottom; margin: 1 2; }
+    CargoScreen DataTable { height: 1fr; margin: 1; }
+    TradeScreen Static, BridgeScreen Static, EngineeringScreen Static,
+    TacticalScreen Static, CrewScreen Static, ModuleShopScreen Static,
+    MissionScreen Static {
+        border: solid $primary; margin: 1; padding: 0 1;
+        background: $surface;
+    }
+    TradeScreen Input, EngineeringScreen Input, TacticalScreen Input,
+    CrewScreen Input, ModuleShopScreen Input, MissionScreen Input {
+        dock: bottom; margin: 1 2;
+    }
     """
 
     player_x = reactive(WIDTH // 2)
@@ -468,26 +476,34 @@ class GalaxyMapApp(App):
 
         # PLAYING
         desc = self.galaxy.get_object_info(self.player_x, self.player_y)
-        sl = self._get_ship_status()
-        sline = "  " + " | ".join(sl) if sl else "  Nominal"
-        nearby = self._scan_nearby()
-        cargo = self._cargo_summary()
-        cval = self.ship.cargo.total_value()
+        stats = self.ship.get_effective_stats()
         rn = RACES.get(self.ship.race, {}).get("name", "Human")
         rl = self.ship.religion or "none"
+        max_h = self.ship.max_hull + stats.get("hull_bonus", 0)
+        shield_cap = stats.get("shield_cap", 0)
+        cargo = self._cargo_summary()
+        cval = self.ship.cargo.total_value()
         rep = self._reputation_summary()
+        sl = self._get_ship_status()
+        sline = " | ".join(sl) if sl else "Nominal"
         stn = self.galaxy.get_nearest_station(self.player_x, self.player_y, 1)
-        econ = "\n" + stn.price_summary() if stn else ""
-        self.query_one("#info-panel").update(
-            f"({self.player_x},{self.player_y}) {desc}\n"
-            f"{self.ship.name}[{rn}] Rel:{rl}  "
-            f"Hull:{self.ship.hull}/{self.ship.max_hull + self.ship.get_effective_stats().get('hull_bonus', 0)} "
-            f"Sh:{self.ship.shield_hp}/{self.ship.get_effective_stats().get('shield_cap', 0)} "
-            f"Fuel:{self.ship.fuel} Cr:{self.ship.credits}\n"
-            f"{cargo}  Val:{cval}cr\n"
-            f"Rep:{rep}\n"
-            f"Status:{sline}{econ}")
-        self.query_one("#log").update(self.logger.render(10))
+        econ = "│ " + stn.price_summary() + "\n" if stn else ""
+
+        info = (
+            f"┌─ {self.ship.name} [{rn}]  ({self.player_x},{self.player_y}) {desc} ───┐\n"
+            f"│ H:{self.ship.hull}/{max_h}  "
+            f"🛡{self.ship.shield_hp}/{shield_cap}  "
+            f"⛽{self.ship.fuel}  💰{self.ship.credits}cr  "
+            f"Rel:{rl}                 │\n"
+            f"│ {cargo}                │\n"
+            f"│ Val:{cval}cr                                        │\n"
+            f"│ Rep: {rep}             │\n"
+            f"│ {sline[:52]}               │\n"
+            f"{econ}"
+            f"└{'─' * 52}┘"
+        )
+        self.query_one("#info-panel").update(info)
+        self.query_one("#log").update(self.logger.render(8))
 
     # -----------------------------------------------------------------------
     # Logging
