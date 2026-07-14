@@ -4,7 +4,7 @@ import pytest
 import random
 from models import (
     CargoHold, ShipModule, PlayerShip, NPCShip, TraderShip,
-    PirateShip, Station, Galaxy, GameEvent, NewsEntry,
+    PirateShip, Station, Galaxy, GameEvent, NewsEntry, Mission,
     NPCShip_id_counter,
 )
 from config import (
@@ -687,6 +687,63 @@ class TestGalaxyTick:
         g = Galaxy()
         g.reset_npc_counter()
         assert NPCShip_id_counter == 0
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Missions
+# ──────────────────────────────────────────────────────────────────────
+
+class TestMissions:
+    def test_create_mission(self):
+        m = Mission("deliver", "ore", 5, "Alpha", 200, 30)
+        assert m.mtype == "deliver"
+        assert m.resource == "ore"
+        assert m.amount == 5
+        assert m.target_station == "Alpha"
+        assert m.reward == 200
+        assert m.ticks == 30
+
+    def test_station_gen_missions(self):
+        s1 = Station(10, 10, name="S1")
+        s2 = Station(20, 20, name="S2")
+        s1.gen_missions([s1, s2])
+        assert len(s1.missions) >= 1
+        m = s1.missions[0]
+        assert m.target_station != "S1"  # not to itself
+
+    def test_check_missions_complete(self):
+        s1 = Station(10, 10, name="S1")
+        ship = PlayerShip("T", 100)
+        ship.cargo.add("ore", 10)
+        ship.missions.append(Mission("deliver", "ore", 5, "S1", 200, 20))
+        assert ship.credits == 1000
+        completed = ship.check_missions(s1)
+        assert len(completed) == 1
+        assert ship.credits == 1200
+        assert len(ship.missions) == 0
+
+    def test_check_missions_not_enough_cargo(self):
+        s1 = Station(10, 10, name="S1")
+        ship = PlayerShip("T", 100)
+        ship.cargo.add("ore", 2)
+        ship.missions.append(Mission("deliver", "ore", 5, "S1", 200, 20))
+        completed = ship.check_missions(s1)
+        assert len(completed) == 0
+        assert len(ship.missions) == 1  # not completed
+
+    def test_check_missions_wrong_station(self):
+        s1 = Station(10, 10, name="S1")
+        s2 = Station(20, 20, name="S2")
+        ship = PlayerShip("T", 100)
+        ship.cargo.add("ore", 10)
+        ship.missions.append(Mission("deliver", "ore", 5, "S2", 200, 20))
+        completed = ship.check_missions(s1)
+        assert len(completed) == 0  # wrong station
+
+    def test_missions_in_galaxy(self):
+        g = Galaxy(seed=42)
+        total = sum(len(s.missions) for s in g.stations)
+        assert total > 0  # missions generated on creation
 
 
 # ──────────────────────────────────────────────────────────────────────

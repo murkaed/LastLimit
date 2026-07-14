@@ -605,6 +605,8 @@ class GalaxyMapApp(App):
                     acts.append(("j", f"(J)oin {st.name}", "_act_join_religion", f"Temple {dn}"))
                 if st and st.modules_for_sale:
                     acts.append(("p", f"Shop (P)arts [{len(st.modules_for_sale)} modules]", "_act_modules_shop", f"Station {dn}"))
+                if st and st.missions:
+                    acts.append(("v", f"Miss(V)ons [{len(st.missions)} available]", "_act_missions", f"Station {dn}"))
             elif ot == "planet":
                 acts.append(("s", f"(S)can {ic} {nm}", "_act_scan_planet", f"{nm} {dn}"))
                 acts.append(("l", f"(L)and {ic}", "_act_land", f"{nm} {dn}"))
@@ -693,6 +695,14 @@ class GalaxyMapApp(App):
         else:
             self.logger.system("No modules for sale.")
 
+    def _act_missions(self):
+        st = self.galaxy.get_station_at(self.player_x, self.player_y)
+        if st and st.missions:
+            from ui import MissionScreen
+            self.push_screen(MissionScreen(st))
+        else:
+            self.logger.system("No missions.")
+
     def _act_scan_planet(self):
         self.logger.exploration(
             f"Scan: {random.choice(['rocky','gas giant','ice','desert','oceanic'])}, "
@@ -778,6 +788,17 @@ class GalaxyMapApp(App):
                     self.ship.reputation["free_traders"] = min(
                         100, self.ship.reputation.get("free_traders", 0) + 2)
                     self.logger.combat(f"{p.name} destroyed! +{r}cr")
+                else:
+                    # Pirate retaliates if within their range
+                    pirate_range = 1
+                    if max(abs(p.x - self.player_x), abs(p.y - self.player_y)) <= pirate_range:
+                        ret_dmg = 8
+                        evasion = self.ship.get_effective_stats().get("evasion", 0)
+                        if random.random() * 100 >= evasion:
+                            self.ship.take_damage(ret_dmg)
+                            self.logger.combat(f"{p.name} retaliates! -{ret_dmg}")
+                        else:
+                            self.logger.combat(f"{p.name} misses!")
                 return
         self.logger.system("No pirate.")
 
@@ -829,6 +850,12 @@ class GalaxyMapApp(App):
             self.state = GameState.GAME_OVER
             self.death_cause = evs[-1] if evs else "Unknown"
             self.logger.danger("Destroyed.")
+        # Check mission completion at station
+        st = self.galaxy.get_station_at(self.player_x, self.player_y)
+        if st:
+            completed = self.ship.check_missions(st)
+            for _, msg in completed:
+                self.logger.trade(msg)
         self.update_map()
         self.update_info()
 
@@ -1194,10 +1221,15 @@ class GalaxyMapApp(App):
                         f"  [{i}] {label} hull:{npc.hull}/{npc.max_hull}{sh} dist:{d} [{tag}]")
 
         elif c == "missions":
-            if self.galaxy.events_queue:
-                self.logger.system("Active events.")
+            if self.ship.missions:
+                self.logger.system("── Active Missions ──")
+                for m in self.ship.missions:
+                    info = RESOURCES.get(m.resource, {})
+                    self.logger.system(
+                        f"  Deliver {m.amount} {info.get('name', m.resource)} "
+                        f"→ {m.target_station}  +{m.reward}cr  ({m.ticks} ticks left)")
             else:
-                self.logger.system("No missions.")
+                self.logger.system("No active missions. Visit stations for contracts.")
 
         elif c == "news":
             self._prev_state = self.state

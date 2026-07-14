@@ -404,6 +404,84 @@ class ModuleShopScreen(Screen):
 
 
 # ---------------------------------------------------------------------------
+# Missions
+# ---------------------------------------------------------------------------
+
+class MissionScreen(Screen):
+    def __init__(self, station):
+        super().__init__()
+        self.station = station
+
+    def compose(self):
+        yield Static(id="missions-title")
+        yield Static(id="missions-station")
+        yield Static(id="missions-active")
+        yield Input(placeholder="accept <num> or close", id="missions-input")
+
+    def on_mount(self):
+        app = self.app
+        st = self.station
+        s = app.ship
+
+        self.query_one("#missions-title").update(
+            f"┏━ MISSIONS ━━ {st.name}[{st.faction}] ━━━━━━━━━━━┓")
+
+        # Station missions
+        slines = [f"── Available at {st.name} ──"]
+        for i, m in enumerate(st.missions, 1):
+            info = RESOURCES.get(m.resource, {})
+            slines.append(
+                f"  [{i}] Deliver {m.amount} {info.get('name', m.resource)} "
+                f"→ {m.target_station}  +{m.reward}cr  ({m.ticks} ticks)"
+            )
+        if not st.missions:
+            slines.append("  (no missions)")
+        self.query_one("#missions-station").update("\n".join(slines))
+
+        # Active player missions
+        alines = ["── Your Missions ──"]
+        if s.missions:
+            for m in s.missions:
+                info = RESOURCES.get(m.resource, {})
+                alines.append(
+                    f"  Deliver {m.amount} {info.get('name', m.resource)} "
+                    f"→ {m.target_station}  +{m.reward}cr  ({m.ticks} ticks)"
+                )
+        else:
+            alines.append("  (no active missions)")
+        self.query_one("#missions-active").update("\n".join(alines))
+
+    def on_key(self, event):
+        if event.key in ("escape", "q"):
+            self.dismiss()
+
+    def on_input_submitted(self, event):
+        app = self.app
+        st = self.station
+        s = app.ship
+        v = event.value.strip().lower()
+        if v in ("close", "exit", "quit"):
+            self.dismiss(); return
+        parts = v.split()
+        if parts and parts[0] == "accept" and len(parts) >= 2:
+            try:
+                idx = int(parts[1]) - 1
+            except ValueError:
+                return
+            if 0 <= idx < len(st.missions):
+                m = st.missions.pop(idx)
+                if len(s.missions) < 5:
+                    s.missions.append(m)
+                    app.logger.system(f"Accepted: Deliver {m.amount} {m.resource} → {m.target_station}")
+                else:
+                    app.logger.system("Mission log full (max 5).")
+                self.dismiss()
+        else:
+            app.process_command(v)
+            self.dismiss()
+
+
+# ---------------------------------------------------------------------------
 # Crew (F5)
 # ---------------------------------------------------------------------------
 

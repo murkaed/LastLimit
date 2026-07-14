@@ -97,6 +97,7 @@ class PlayerShip:
         # Crew posts
         self.crew = {"Pilot": None, "Engineer": None, "Tactical": None, "Scientist": None}
         self._last_damaged_module = None
+        self.missions: list[Mission] = []
 
     def take_damage(self, amount):
         """Deal damage: shields absorb first, remainder to hull. Returns True if alive."""
@@ -173,6 +174,19 @@ class PlayerShip:
                     for k in stats:
                         stats[k] += m.stats.get(k, 0) * eff
         return {k: int(v) for k, v in stats.items()}
+
+    def check_missions(self, station):
+        """Check if any mission targets this station. Returns list of (mission, msg)."""
+        completed = []
+        for m in self.missions:
+            if m.mtype == "deliver" and m.target_station == station.name:
+                if self.cargo.has(m.resource) >= m.amount:
+                    self.cargo.remove(m.resource, m.amount)
+                    self.credits += m.reward
+                    completed.append((m, f"Mission complete! Delivered {m.amount} {m.resource} to {station.name}. +{m.reward}cr"))
+        for m, _ in completed:
+            self.missions.remove(m)
+        return completed
 
     def install_module(self, mod_id: str) -> bool:
         info = SHIP_MODULES.get(mod_id)
@@ -290,6 +304,19 @@ class Station:
         pool = [m for m in available if m not in starter]
         count = random.randint(2, 5)
         self.modules_for_sale = random.sample(pool, min(count, len(pool)))
+
+    def gen_missions(self, all_stations):
+        """Generate deliver missions to other stations."""
+        import random
+        others = [s for s in all_stations if s.name != self.name]
+        if not others or len(self.missions) >= 3:
+            return
+        target = random.choice(others)
+        rid = random.choice(list(RESOURCES))
+        amt = random.randint(3, 8)
+        price = RESOURCES[rid]["base_price"]
+        reward = price * amt * random.randint(2, 4)
+        self.missions.append(Mission("deliver", rid, amt, target.name, reward, random.randint(20, 40)))
 
     def update_prices(self):
         for rid, info in RESOURCES.items():
@@ -415,6 +442,15 @@ class NewsEntry:
         self.body = body
         self.turn = turn
 
+class Mission:
+    def __init__(self, mtype, resource, amount, target_station, reward, ticks=30):
+        self.mtype = mtype  # "deliver"
+        self.resource = resource
+        self.amount = amount
+        self.target_station = target_station  # station name string
+        self.reward = reward
+        self.ticks = ticks
+
 # ---------------------------------------------------------------------------
 # Galaxy
 # ---------------------------------------------------------------------------
@@ -532,6 +568,9 @@ class Galaxy:
         for _ in range(random.randint(3, 5)):
             x, y = self._random_passable_near("asteroids", 5)
             self.pirates.append(PirateShip(x, y))
+        # Generate missions
+        for s in self.stations:
+            s.gen_missions(self.stations)
 
     @staticmethod
     def _nearby(x, y, md=2):
