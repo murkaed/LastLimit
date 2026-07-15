@@ -1261,7 +1261,8 @@ class MissionScreen(Screen):
     def __init__(self, station):
         """Сохраняет ссылку на станцию."""
         super().__init__()
-        self.station = station  # объект станции
+        self.station = station
+        self._selected = 0
 
     def compose(self):
         """Создаёт виджет содержимого и поле ввода."""
@@ -1270,9 +1271,13 @@ class MissionScreen(Screen):
 
     def on_mount(self):
         """Формирует список доступных и активных миссий."""
+        self._refresh()
+
+    def _refresh(self):
         app = self.app
         st = self.station
         s = app.ship
+        self._selected = min(self._selected, max(0, len(st.missions) - 1))
 
         lines = [
             f"┌─ MISSIONS ─ {st.name} [{st.faction}] ────────────┐",
@@ -1280,9 +1285,10 @@ class MissionScreen(Screen):
             f"│  ══ AVAILABLE ══                              │",
         ]
         for i, m in enumerate(st.missions, 1):
+            sel = "▶" if i - 1 == self._selected else " "
             name = RESOURCES.get(m.resource, {}).get("name", m.resource)
             lines.append(
-                f"│  [{i}] Deliver {m.amount}x {name:<12} → {m.target_station:<10}  │"
+                f"│{sel}[{i}] Deliver {m.amount}x {name:<12} → {m.target_station:<10}  │"
             )
             lines.append(
                 f"│      Reward: {m.reward:>5}cr  │  {m.ticks} ticks              │"
@@ -1299,13 +1305,31 @@ class MissionScreen(Screen):
                 )
         else:
             lines.append("│  (none)                                       │")
+        lines.append("├──────────────────────────────────────────────┤")
+        lines.append("│  [↑↓] Select  [Enter] Accept  [Esc] Back     │")
         lines.append("└──────────────────────────────────────────────┘")
         self.query_one("#missions-content").update("\n".join(lines))
 
     def on_key(self, event):
-        """Закрывает экран по Escape или Q."""
+        """Обрабатывает Enter для принятия миссии и стрелки для навигации."""
+        st = self.station
+        s = self.app.ship
         if event.key in ("escape", "q"):
             event.stop(); self.dismiss()
+        elif event.key == "up" and st.missions:
+            self._selected = (self._selected - 1) % len(st.missions)
+            self._refresh()
+        elif event.key == "down" and st.missions:
+            self._selected = (self._selected + 1) % len(st.missions)
+            self._refresh()
+        elif event.key == "enter" and st.missions:
+            idx = min(self._selected, len(st.missions) - 1)
+            m = st.missions[idx]
+            msg, ok = s.add_mission(m)
+            if ok:
+                st.missions.remove(m)
+            self.app.logger.system(msg)
+            self._refresh()
 
     def on_input_submitted(self, event):
         """Обрабатывает команду accept <num> или передаёт ввод в process_command()."""
@@ -1314,7 +1338,7 @@ class MissionScreen(Screen):
         s = app.ship
         v = event.value.strip().lower()
         if v in ("close", "exit", "quit"):
-            self.dismiss(); return
+            event.stop(); self.dismiss(); return
         parts = v.split()
         if parts and parts[0] == "accept" and len(parts) >= 2:
             try:
@@ -1842,6 +1866,8 @@ class ActionMenu(Screen):
         interact = []
         if st:
             interact.append(("d", t("action.trade"), "trade"))
+            if st.missions:
+                interact.append(("m", t("action.missions"), "station_missions"))
             if st.modules_for_sale:
                 interact.append(("p", t("action.trade")+" mod", "modules"))
             if st.stype == "shipyard":
@@ -1884,6 +1910,7 @@ class ActionMenu(Screen):
             "scan": lambda: app.push_screen(ScanScreen()),
             "trade": lambda: app.push_screen(TradeScreen(st)),
             "modules": lambda: app.push_screen(ModuleShopScreen(st)),
+            "station_missions": lambda: app.push_screen(MissionScreen(st)),
             "shipyard": lambda: app.push_screen(ShipyardScreen(st)),
             "craft": lambda: app.push_screen(CraftingScreen(st)),
             "hire": lambda: app.push_screen(HireScreen(st)),
