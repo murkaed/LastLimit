@@ -1368,7 +1368,7 @@ class GalaxyMapApp(App):
         self.update_map()
         self.update_info()
 
-    def on_screen_resume(self):
+    def on_screen_resume(self, event=None):
         """Вызывается при возврате на основной экран после закрытия дочернего.
 
         Размораживает мир, если игрок вернулся на карту галактики.

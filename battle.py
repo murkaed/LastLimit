@@ -693,7 +693,11 @@ class BattleScreen(Screen):
             event: событие нажатия клавиши
         """
         c = self.ctrl
-        if c.over: self._apply_outcome(); self.dismiss(); return
+        if c.over:
+            self._apply_outcome()
+            event.stop()
+            self.dismiss()
+            return
         event.stop()
         k = event.key
         if self.menu_state == "main":
