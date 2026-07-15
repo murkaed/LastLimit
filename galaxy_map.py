@@ -25,7 +25,8 @@ from ui import (
     BridgeScreen, EngineeringScreen, TacticalScreen, CrewScreen,
     ModuleShopScreen, MissionScreen, MissionsScreen,
     ShipyardScreen, CraftingScreen, HireScreen,
-    ScanScreen,
+    ScanScreen, LandingPrepScreen,
+    ActionMenu, SettingsScreen,
 )
 from battle import BattleScreen, BattleController
 
@@ -148,6 +149,10 @@ class GalaxyMapApp(App):
         yield Footer()
 
     def on_mount(self):
+        from locales import set_lang
+        from config import load_settings
+        _cfg = load_settings()
+        set_lang(_cfg.get("lang", "ru"))
         self.update_map()
         self.update_info()
 
@@ -174,7 +179,7 @@ class GalaxyMapApp(App):
             "  ┃ future, there is only war.          ┃",
             "  ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛",
             f"  Race: {RACES.get(self.ship.race, {}).get('name', 'Human')}", "",
-            f"  WASD Move  E Interact  I Inspect  H Help",
+            f"  WASD Move  E Interact  I Inspect  L Land  H Help",
             f"  N News  F1 Bridge (scanner, missions)  ~ Console", "",
             "  Press any key to start...",
         ]))
@@ -828,6 +833,40 @@ class GalaxyMapApp(App):
             self.push_screen(HireScreen(st))
         else:
             self.logger.system("No tavern.")
+
+    def _try_landing(self):
+        """Try to land on the current tile."""
+        tile = self.galaxy.tiles[self.player_y][self.player_x]
+        # Tile char → site type mapping
+        TILE_TO_SITE = {
+            "o": "planet",       # TILE_PLANET
+            "÷": "asteroid",     # TILE_ASTEROIDS  
+            "◈": "station",
+        }
+        # Also check if we're on a station
+        st = self.galaxy.get_station_at(self.player_x, self.player_y)
+        if st:
+            site_type = st.stype
+            site_name = st.name
+        else:
+            site_type = TILE_TO_SITE.get(tile)
+            site_name = f"{tile} at ({self.player_x},{self.player_y})"
+
+        if not site_type:
+            self.logger.system("Nothing to land on here.")
+            return
+
+        # Find a crew member for the expedition
+        unassigned = [cm for cm in self.ship.crew_members if not cm.assigned]
+        if unassigned:
+            self.push_screen(LandingPrepScreen(site_type=site_type, site_name=site_name))
+        else:
+            # No crew — deploy captain with default stats
+            from models import CrewMember
+            captain = CrewMember("Captain", "Pilot")
+            captain.assigned = False  # fake unassigned for prep screen
+            self.ship.crew_members.append(captain)
+            self.push_screen(LandingPrepScreen(site_type=site_type, site_name=site_name))
 
     def _act_scan_planet(self):
         self.logger.exploration(
@@ -1649,12 +1688,7 @@ class GalaxyMapApp(App):
         elif event.key == "q":
             self.exit()
         elif event.key == "e":
-            self.interaction_actions = self._get_available_interactions()
-            if self.interaction_actions:
-                self._interaction_active = True
-                self.update_map(); self.update_info()
-            else:
-                self.logger.system("Nothing.")
+            self.push_screen(ActionMenu())
         elif event.key == "h":
             self._prev_state = self.state
             self.state = GameState.HELP
@@ -1672,9 +1706,8 @@ class GalaxyMapApp(App):
             st = self.galaxy.get_station_at(self.player_x, self.player_y)
             if st:
                 self.push_screen(TradeScreen(st))
-                self.update_map(); self.update_info()
-            else:
-                self.logger.system("No station.")
+        elif event.key in ("l", "L"):
+            self._try_landing()
         elif event.key == "f":
             rng = self.ship.get_effective_stats().get("range", 1)
             closest = None

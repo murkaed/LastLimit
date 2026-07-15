@@ -168,6 +168,15 @@ class CrewMember:
         self.bonus = dict(spec.get("bonus", {}))
         self.assigned = False
         self.salary = random.randint(20, 60) * self.level
+        # Ground combat stats
+        self.hp = 30
+        self.max_hp = 30
+        self.ap = 4       # action points per turn
+        self.max_ap = 4
+        self.weapon = "pistol"
+        self.armor = "vest"
+        self.inventory = {}  # item_id: qty
+        self.combat_skill = 50  # base accuracy for ground combat
 
     def xp_for_next(self):
         return self.level * 50

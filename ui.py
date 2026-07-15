@@ -1408,6 +1408,91 @@ class HireScreen(Screen):
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# Landing Prep Screen
+# ═══════════════════════════════════════════════════════════════════════
+
+class LandingPrepScreen(Screen):
+    """Choose crew member and equipment for ground expedition."""
+
+    def __init__(self, site_type="station", site_name="Unknown"):
+        super().__init__()
+        self.site_type = site_type
+        self.site_name = site_name
+        self._selected = 0
+
+    def compose(self):
+        yield Static(id="landing-content")
+        yield Input(placeholder="L to land on  |  close", id="landing-input")
+
+    def on_mount(self):
+        self._refresh()
+
+    def _refresh(self):
+        app = self.app
+        if not hasattr(app, "ship"):
+            return
+        s = app.ship
+        lines = [
+            "┌" + "─" * 56 + "┐",
+            "│" + "LANDING PREP".center(56) + "│",
+            f"│  Site: {self.site_name:<15} Type: {self.site_type:<12}│",
+            "├" + "─" * 56 + "┤",
+            "│  Available crew:                                     │",
+        ]
+        # Show unassigned crew members
+        available = [cm for cm in s.crew_members if not cm.assigned]
+        if not available:
+            lines.append("│  (no unassigned crew)                             │")
+        else:
+            for i, cm in enumerate(available):
+                sel = "▶" if i == self._selected else " "
+                wpn = cm.weapon or "none"
+                arm = cm.armor or "none"
+                lines.append(f"│{sel}{i+1}. {cm.desc():<20} HP:{cm.hp:>2}/{cm.max_hp:<2} W:{wpn:<8} A:{arm:<8}│")
+
+        lines.append("├" + "─" * 56 + "┤")
+        lines.append("│  [Enter] Select crew member for expedition         │")
+        lines.append("│  [D] Deploy now (select from cargo)               │")
+        lines.append("│  [Esc] Cancel                                     │")
+        lines.append("└" + "─" * 56 + "┘")
+        self.query_one("#landing-content").update("\n".join(lines))
+
+    def on_key(self, event):
+        app = self.app
+        if event.key == "escape":
+            event.stop(); self.dismiss(); return
+
+        s = app.ship
+        available = [cm for cm in s.crew_members if not cm.assigned]
+
+        if event.key == "up":
+            if available:
+                self._selected = (self._selected - 1) % len(available)
+            self._refresh()
+        elif event.key == "down":
+            if available:
+                self._selected = (self._selected + 1) % len(available)
+            self._refresh()
+        elif event.key == "enter" and available:
+            idx = min(self._selected, len(available) - 1)
+            cm = available[idx]
+            self._launch(cm)
+        elif event.key in ("d", "D") and available:
+            idx = min(self._selected, len(available) - 1)
+            cm = available[idx]
+            self._launch(cm)
+
+    def _launch(self, crew_member):
+        """Launch ExpeditionScreen with selected crew member."""
+        app = self.app
+        from expedition import ExpeditionMap, ExpeditionController, ExpeditionScreen
+        emp = ExpeditionMap(site_type=self.site_type)
+        ctrl = ExpeditionController(crew_member, emp)
+        app.push_screen(ExpeditionScreen(ctrl))
+        self.dismiss()
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # Scan Screen
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -1505,3 +1590,248 @@ class ScanScreen(Screen):
                     err = result.info.get("error", "Scan failed.")
                     app.logger.system(f"Scan error: {err}")
                 self._update_display()
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Action Menu
+# ═══════════════════════════════════════════════════════════════════════
+
+from locales import t
+from config import load_settings, save_settings
+
+
+class ActionMenu(Screen):
+    """Context-aware action menu, opened by E key."""
+
+    def __init__(self):
+        super().__init__()
+        self._selected = 0
+        self._sections = []
+
+    def compose(self):
+        yield Static(id="action-content")
+
+    def on_mount(self):
+        self._build_sections()
+        self._render()
+
+    def _at_station(self):
+        app = self.app
+        return app.galaxy.get_station_at(app.player_x, app.player_y) if hasattr(app, "galaxy") else None
+
+    def _nearby_npc(self):
+        app = self.app
+        if not hasattr(app, "galaxy"): return None
+        px, py = app.player_x, app.player_y
+        for p in app.galaxy.pirates:
+            if p.alive and max(abs(p.x-px),abs(p.y-py)) <= 1: return p
+        for t in app.galaxy.traders:
+            if t.alive and max(abs(t.x-px),abs(t.y-py)) <= 1: return t
+        return None
+
+    def _build_sections(self):
+        app = self.app
+        if not hasattr(app, "galaxy"):
+            self._sections = [("System", [("q", "Close", lambda: self.dismiss())])]
+            return
+        st = self._at_station()
+        self._sections = []
+
+        ship_actions = [
+            ("b", t("action.bridge"), "bridge"),
+            ("e", t("action.engineering"), "engineering"),
+            ("t", t("action.tactical"), "tactical"),
+            ("c", t("action.cargo"), "cargo"),
+            ("r", t("action.crew"), "crew"),
+            ("m", t("action.missions"), "missions"),
+            ("s", t("action.scan"), "scan"),
+        ]
+        self._sections.append((t("action.ship"), ship_actions))
+
+        interact = []
+        if st:
+            interact.append(("d", t("action.trade"), "trade"))
+            if st.modules_for_sale:
+                interact.append(("p", t("action.trade")+" mod", "modules"))
+            if st.stype == "shipyard":
+                interact.append(("y", t("action.shipyard"), "shipyard"))
+            if st.stype == "workshop":
+                interact.append(("k", t("action.craft"), "craft"))
+            if st.stype == "tavern":
+                interact.append(("h", t("action.crew")+" hire", "hire"))
+            interact.append(("f", t("action.refuel"), "refuel"))
+            interact.append(("x", t("action.repair"), "repair"))
+        tile = app.galaxy.tiles[app.player_y][app.player_x] if hasattr(app, "galaxy") else ""
+        if tile in ("o", "÷", "◈"):
+            interact.append(("l", t("action.land"), "land"))
+        if interact:
+            self._sections.append((t("action.interact"), interact))
+
+        sys_actions = [
+            ("g", t("action.settings"), "settings"),
+            ("q", t("action.close"), "close"),
+        ]
+        self._sections.append((t("action.system"), sys_actions))
+
+    def _dispatch(self, action_id):
+        """Execute an action by id."""
+        app = self.app
+        st = self._at_station()
+        m = {
+            "bridge": lambda: app.push_screen(BridgeScreen()),
+            "engineering": lambda: app.push_screen(EngineeringScreen()),
+            "tactical": lambda: app.push_screen(TacticalScreen()),
+            "cargo": lambda: app.push_screen(CargoScreen()),
+            "crew": lambda: app.push_screen(CrewScreen()),
+            "missions": lambda: app.push_screen(MissionsScreen()),
+            "scan": lambda: app.push_screen(ScanScreen()),
+            "trade": lambda: app.push_screen(TradeScreen(st)),
+            "modules": lambda: app.push_screen(ModuleShopScreen(st)),
+            "shipyard": lambda: app.push_screen(ShipyardScreen(st)),
+            "craft": lambda: app.push_screen(CraftingScreen(st)),
+            "hire": lambda: app.push_screen(HireScreen(st)),
+            "refuel": lambda: app._act_refuel(),
+            "repair": lambda: app._act_repair(),
+            "land": lambda: app._try_landing(),
+            "settings": lambda: app.push_screen(SettingsScreen()),
+            "close": lambda: None,
+        }
+        fn = m.get(action_id)
+        if fn: fn()
+
+    def _render(self):
+        lines = []; W = 60
+        lines.append("┌"+"─"*W+"┐")
+        lines.append("│"+"ACTIONS".center(W)+"│")
+        lines.append("├"+"─"*W+"┤")
+        idx = 0
+        for sec_name, acts in self._sections:
+            lines.append("│"+"─"*W+"│")
+            lines.append("│"+f"  {sec_name}".ljust(W-2)+"│")
+            for key, label, _ in acts:
+                sel = "▶" if idx == self._selected else " "
+                lines.append(f"│{sel} [{key}] {label:<{W-8}}│")
+                idx += 1
+        lines.append("├"+"─"*W+"┤")
+        lines.append("│"+" [↑↓] Navigate  [Enter/Key] Select  [Esc] Close".center(W)+"│")
+        lines.append("└"+"─"*W+"┘")
+        self.query_one("#action-content").update("\n".join(lines))
+
+    def on_key(self, event):
+        if event.key == "escape":
+            event.stop(); self.dismiss(); return
+        all_actions = [a for _, acts in self._sections for a in acts]
+        if event.key == "up" and all_actions:
+            self._selected = (self._selected-1)%len(all_actions); self._render()
+        elif event.key == "down" and all_actions:
+            self._selected = (self._selected+1)%len(all_actions); self._render()
+        elif event.key == "enter" and all_actions:
+            _, _, aid = all_actions[self._selected]; self._dispatch(aid); self.dismiss()
+        for i, (key, _, aid) in enumerate(all_actions):
+            if event.key == key:
+                self._dispatch(aid); self.dismiss(); return
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Settings
+# ═══════════════════════════════════════════════════════════════════════
+
+class SettingsScreen(Screen):
+    def __init__(self):
+        super().__init__()
+        self._settings = load_settings()
+        self._selected = 0
+        self._waiting = None
+
+    def compose(self):
+        yield Static(id="settings-content")
+        yield Input(placeholder="change <action> <key>  |  close", id="settings-input")
+
+    def on_mount(self): self._render()
+
+    def _render(self):
+        s = self._settings; W = 60
+        lines = ["┌"+"─"*W+"┐", "│"+t("ui.settings.title").center(W)+"│", "├"+"─"*W+"┤"]
+        opts = []
+
+        # Language
+        lang_v = "Русский" if s["lang"]=="ru" else "English"
+        opts.append(("lang", t("ui.lang"), lang_v))
+
+        # Autosave
+        asv = t("ui.autosave_on") if s["autosave"] else t("ui.autosave_off")
+        opts.append(("autosave", t("ui.autosave"), asv))
+
+        # Keys
+        lines.append("│"+"  Keys".ljust(W-2)+"│")
+        for action, key in s["keys"].items():
+            label = t(f"ctrl.{action}") if t(f"ctrl.{action}")[:1]!="❌" else action
+            mk = " [press key]" if self._waiting == action else ""
+            opts.append(("key_"+action, f"  {label}", f"{key}{mk}"))
+
+        # Reset
+        opts.append(("reset", t("ui.reset_defaults"), ""))
+
+        for i, (oid, name, val) in enumerate(opts):
+            sel = "▶" if i==self._selected else " "
+            lines.append(f"│{sel} {name:<20} {val:<{W-25}}│")
+
+        lines.append("├"+"─"*W+"┤")
+        lines.append("│"+" [Enter] Toggle/Change  [↑↓]  [Esc] Save & Close".center(W)+"│")
+        lines.append("└"+"─"*W+"┘")
+        self.query_one("#settings-content").update("\n".join(lines))
+
+    def _opts(self):
+        s = self._settings
+        r = [("lang", s["lang"]), ("autosave", s["autosave"])]
+        for k in s["keys"]: r.append(("key_"+k, s["keys"][k]))
+        r.append(("reset", None))
+        return r
+
+    def on_key(self, event):
+        if self._waiting:
+            action = self._waiting
+            self._waiting = None
+            if event.key not in ("escape","enter"):
+                self._settings["keys"][action] = event.key
+            self._render(); return
+        if event.key == "escape":
+            self._save_close(); return
+        if event.key == "up":
+            self._selected = (self._selected-1)%len(self._opts()); self._render()
+        elif event.key == "down":
+            self._selected = (self._selected+1)%len(self._opts()); self._render()
+        elif event.key == "enter":
+            opts = self._opts()
+            if self._selected >= len(opts): return
+            oid, val = opts[self._selected]
+            if oid == "lang":
+                s["lang"] = "en" if s["lang"]=="ru" else "ru"
+                from locales import set_lang; set_lang(s["lang"])
+                self._render()
+            elif oid == "autosave":
+                s["autosave"] = not s["autosave"]
+                self._render()
+            elif oid.startswith("key_"):
+                action = oid[4:]
+                self._waiting = action
+                self._render()
+            elif oid == "reset":
+                from config import DEFAULT_SETTINGS
+                self._settings = dict(DEFAULT_SETTINGS)
+                from locales import set_lang; set_lang(self._settings["lang"])
+                self._render()
+
+    def on_input_submitted(self, event):
+        v = event.value.strip().lower()
+        if v in ("close","exit","quit"):
+            self._save_close(); return
+        p = v.split()
+        if p[0]=="change" and len(p)>=3 and p[1] in self._settings["keys"]:
+            self._settings["keys"][p[1]] = p[2]
+        self._render()
+
+    def _save_close(self):
+        save_settings(self._settings)
+        from locales import set_lang; set_lang(self._settings["lang"])
+        self.dismiss()

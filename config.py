@@ -248,6 +248,73 @@ SCAN_SIGNAL_TYPES = {
 }
 
 # ---------------------------------------------------------------------------
+# Expedition / ground tiles
+# ---------------------------------------------------------------------------
+
+GROUND_TILES = {
+    "wall":       {"ch": "#", "passable": False, "name": "Wall", "destructible": True, "hp": 20},
+    "floor":      {"ch": ".", "passable": True,  "name": "Floor"},
+    "door_closed": {"ch": "+", "passable": False, "name": "Door", "interact": "open", "hp": 10},
+    "door_open":  {"ch": "-", "passable": True,  "name": "Open Door"},
+    "lava":       {"ch": "~", "passable": True,  "name": "Lava", "hazard": 5},
+    "spikes":     {"ch": "^", "passable": True,  "name": "Spikes", "hazard": 3},
+    "crate":      {"ch": "$", "passable": False, "name": "Crate", "interact": "loot"},
+    "terminal":   {"ch": "!", "passable": False, "name": "Terminal", "interact": "use"},
+    "exit":       {"ch": ">", "passable": True,  "name": "Evac Point"},
+    "enemy":      {"ch": "E", "passable": False, "name": "Enemy"},
+    "player":     {"ch": "@", "passable": False, "name": "Player"},
+    "void":       {"ch": " ", "passable": False, "name": "Void"},
+}
+
+GROUND_ENEMIES = {
+    "bandit":  {"name": "Bandit",  "hp": 20, "max_hp": 20, "dmg": 5,  "accuracy": 50, "evasion": 5,  "ap": 4, "ch": "E"},
+    "drone":   {"name": "Drone",   "hp": 12, "max_hp": 12, "dmg": 3,  "accuracy": 60, "evasion": 10, "ap": 5, "ch": "E"},
+    "mutant":  {"name": "Mutant",  "hp": 35, "max_hp": 35, "dmg": 8,  "accuracy": 40, "evasion": 3,  "ap": 4, "ch": "E"},
+    "turret":  {"name": "Turret",  "hp": 25, "max_hp": 25, "dmg": 6,  "accuracy": 70, "evasion": 0,  "ap": 3, "ch": "E"},
+}
+
+GROUND_WEAPONS = {
+    "pistol":   {"name": "Pistol",  "dmg": 4,  "accuracy": 75, "ap_cost": 2, "range": 4},
+    "rifle":    {"name": "Rifle",   "dmg": 7,  "accuracy": 65, "ap_cost": 3, "range": 6},
+    "shotgun":  {"name": "Shotgun", "dmg": 10, "accuracy": 50, "ap_cost": 3, "range": 3},
+    "knife":    {"name": "Knife",   "dmg": 3,  "accuracy": 85, "ap_cost": 1, "range": 1},
+}
+
+GROUND_ARMOR = {
+    "none":     {"name": "None",   "defense": 0},
+    "vest":     {"name": "Vest",   "defense": 3},
+    "combat":   {"name": "Combat", "defense": 5},
+}
+
+EXPEDITION_FOV_RADIUS = 6
+
+# ---------------------------------------------------------------------------
+# Settings — defaults
+# ---------------------------------------------------------------------------
+
+SETTINGS_FILE = "settings.json"
+
+DEFAULT_SETTINGS = {
+    "lang": "ru",
+    "autosave": True,
+    "keys": {
+        "move_up": "up",
+        "move_down": "down",
+        "move_left": "left",
+        "move_right": "right",
+        "interact": "e",
+        "inspect": "i",
+        "bridge": "f1",
+        "news": "n",
+        "help": "h",
+        "console": "`",
+        "land": "l",
+        "wait": "space",
+        "action_menu": "e",
+    },
+}
+
+# ---------------------------------------------------------------------------
 # Station types expanded
 # ---------------------------------------------------------------------------
 
@@ -260,3 +327,33 @@ STATION_TYPES = {
     "workshop":    {"name": "Workshop",   "recipes": list(RECIPES)},
     "tavern":      {"name": "Tavern",     "crew_slots": 4},
 }
+
+
+# ---------------------------------------------------------------------------
+# Settings load/save
+# ---------------------------------------------------------------------------
+
+def load_settings():
+    """Load settings from JSON file, returns dict."""
+    import json, os
+    if not os.path.exists(SETTINGS_FILE):
+        return dict(DEFAULT_SETTINGS)
+    try:
+        with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        # Merge with defaults (fill missing keys)
+        result = dict(DEFAULT_SETTINGS)
+        result.update(data)
+        return result
+    except (json.JSONDecodeError, OSError):
+        return dict(DEFAULT_SETTINGS)
+
+
+def save_settings(settings):
+    """Save settings to JSON file."""
+    import json
+    try:
+        with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+            json.dump(settings, f, indent=2, ensure_ascii=False)
+    except OSError:
+        pass

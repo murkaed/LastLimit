@@ -473,6 +473,7 @@ class BattleScreen(Screen):
     def on_key(self, event):
         c = self.ctrl
         if c.over: self._apply_outcome(); self.dismiss(); return
+        event.stop()
         k = event.key
         if self.menu_state == "main":
             if k == "1":
