@@ -724,6 +724,7 @@ class NPCShip:
         self.credits = 500
         self.alive = True
         self.scanned = False
+        self.scan_level = None
 
     def take_damage(self, amount):
         if self.shield_hp > 0:
@@ -1283,7 +1284,10 @@ class Galaxy:
         # Black holes
         for bh_x, bh_y in self.black_holes:
             d = max(abs(px - bh_x), abs(py - bh_y))
-            if 0 < d <= 3:
+            if d == 0:
+                events.append("Black hole!")
+                return px, py, events, True
+            if d <= 3:
                 dx = 1 if bh_x > px else -1 if bh_x < px else 0
                 dy = 1 if bh_y > py else -1 if bh_y < py else 0
                 nx, ny = px + dx, py + dy
