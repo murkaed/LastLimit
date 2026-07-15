@@ -1824,9 +1824,15 @@ class ActionMenu(Screen):
         self._sections.append((t("action.system"), sys_actions))
 
     def _dispatch(self, action_id):
-        """Выполняет действие по его идентификатору."""
+        """Выполняет действие по его идентификатору и закрывает меню."""
         app = self.app
         st = self._at_station()
+        # Все действия, которые открывают новый экран или выполняют
+        # игровую логику, сначала закрывают ActionMenu, чтобы избежать
+        # конфликта с новым экраном.
+        if action_id == "close":
+            self.dismiss(); return
+        self.dismiss()
         m = {
             "bridge": lambda: app.push_screen(BridgeScreen()),
             "engineering": lambda: app.push_screen(EngineeringScreen()),
@@ -1844,7 +1850,6 @@ class ActionMenu(Screen):
             "repair": lambda: app._act_repair(),
             "land": lambda: app._try_landing(),
             "settings": lambda: app.push_screen(SettingsScreen()),
-            "close": lambda: None,
         }
         fn = m.get(action_id)
         if fn: fn()
@@ -1878,10 +1883,10 @@ class ActionMenu(Screen):
         elif event.key == "down" and all_actions:
             self._selected = (self._selected+1)%len(all_actions); self._refresh_ui()
         elif event.key == "enter" and all_actions:
-            _, _, aid = all_actions[self._selected]; self._dispatch(aid); self.dismiss()
+            _, _, aid = all_actions[self._selected]; self._dispatch(aid)
         for i, (key, _, aid) in enumerate(all_actions):
             if event.key == key:
-                self._dispatch(aid); self.dismiss(); return
+                self._dispatch(aid); return
 
 
 # ═══════════════════════════════════════════════════════════════════════
