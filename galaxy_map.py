@@ -2169,7 +2169,7 @@ class GalaxyMapApp(App):
             self.update_map(); self.update_info()
         elif event.key in ("f1", "F1"):
             self.push_screen(BridgeScreen())
-        elif event.key == " ":
+        elif event.key in (" ", "space"):
             self.logger.system("Waiting…")
             self.advance_world()
         elif event.key in ("`", "grave_accent", "asciitilde"):
