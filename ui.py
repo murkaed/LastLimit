@@ -1622,10 +1622,10 @@ class LandingPrepScreen(Screen):
         """Запускает ExpeditionScreen с выбранным членом экипажа."""
         app = self.app
         from expedition import ExpeditionMap, ExpeditionController, ExpeditionScreen
+        self.dismiss()
         emp = ExpeditionMap(site_type=self.site_type)
         ctrl = ExpeditionController(crew_member, emp)
         app.push_screen(ExpeditionScreen(ctrl))
-        self.dismiss()
 
 
 # ═══════════════════════════════════════════════════════════════════════
