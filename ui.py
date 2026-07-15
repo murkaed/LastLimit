@@ -845,6 +845,7 @@ class StationServicesScreen(Screen):
 
     def on_key(self, event):
         """Обрабатывает клавиши: 1-6 для выбора услуги, Escape для возврата."""
+        event.stop()
         st = self.station
         app = self.app
         if event.key == "escape":
@@ -1312,6 +1313,7 @@ class MissionScreen(Screen):
 
     def on_key(self, event):
         """Обрабатывает Enter для принятия миссии и стрелки для навигации."""
+        event.stop()
         st = self.station
         s = self.app.ship
         if event.key in ("escape", "q"):
@@ -1769,6 +1771,7 @@ class ScanScreen(Screen):
 
     def on_key(self, event):
         """Обрабатывает клавиши: стрелки для выбора, Enter для сканирования, Escape для выхода/назад."""
+        event.stop()
         if event.key == "escape":
             if self._mode == "result":
                 self._mode = "select"
@@ -2072,6 +2075,7 @@ class SettingsScreen(Screen):
 
     def on_key(self, event):
         """Обрабатывает клавиши: Enter для переключения/изменения, стрелки, Escape для сохранения и выхода."""
+        event.stop()
         if self._waiting:
             action = self._waiting
             self._waiting = None
