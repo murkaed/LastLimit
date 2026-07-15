@@ -20,6 +20,45 @@ ui.py — Все экраны интерфейса игры LastLimit.
 from textual.screen import Screen
 from textual.widgets import Static, Input, DataTable, Footer
 from config import RESOURCES, COMPARTMENTS, SHIP_MODULES, SHIP_HULLS, UPGRADES, RECIPES, CREW_SPECIALTIES
+
+# ═══════════════════════════════════════════════════════════════════════
+# BaseScreen — единый базовый класс для всех экранов игры
+# ═══════════════════════════════════════════════════════════════════════
+
+class BaseScreen(Screen):
+    """Базовый экран, решающий типовые проблемы Textual.
+
+    1. Метод называется `_refresh_display()`, а НЕ `_render()`,
+       чтобы не переопределять внутренний `Widget._render()` Textual.
+    2. `dismiss_and_push(screen_cls, *args)` — безопасно закрывает
+       текущий экран перед открытием нового.
+    3. `stop_event(event)` — сокращение для event.stop().
+    """
+
+    def _refresh_display(self):
+        """Обновляет отображение экрана. Переопределяется в подклассах."""
+        pass
+
+    def stop_event(self, event):
+        """Останавливает всплытие события (чтобы не утекало в App)."""
+        event.stop()
+
+    def dismiss_and_push(self, screen_cls, *args, **kwargs):
+        """Закрывает текущий экран и открывает новый.
+
+        Безопасная альтернатива push + dismiss:
+        сначала закрывает текущий экран, потом открывает новый.
+        """
+        self.dismiss()
+        self.app.push_screen(screen_cls(*args, **kwargs))
+
+    def on_key(self, event):
+        """Стандартная обработка Esc: закрыть экран с event.stop()."""
+        if event.key == "escape":
+            self.stop_event(event)
+            self.dismiss()
+
+
 # ═══════════════════════════════════════════════════════════════════════
 
 def _box(title, lines, width=54):
@@ -1542,7 +1581,7 @@ class HireScreen(Screen):
 # Landing Prep Screen
 # ═══════════════════════════════════════════════════════════════════════
 
-class LandingPrepScreen(Screen):
+class LandingPrepScreen(BaseScreen):
     """Экран подготовки к высадке. Позволяет выбрать члена экипажа для наземной экспедиции."""
 
     def __init__(self, site_type="station", site_name="Unknown"):
@@ -1619,13 +1658,15 @@ class LandingPrepScreen(Screen):
             self._launch(cm)
 
     def _launch(self, crew_member):
-        """Запускает ExpeditionScreen с выбранным членом экипажа."""
-        app = self.app
+        """Запускает ExpeditionScreen с выбранным членом экипажа.
+
+        Использует dismiss_and_push — сначала закрывает экран подготовки,
+        затем открывает ExpeditionScreen.
+        """
         from expedition import ExpeditionMap, ExpeditionController, ExpeditionScreen
-        self.dismiss()
         emp = ExpeditionMap(site_type=self.site_type)
         ctrl = ExpeditionController(crew_member, emp)
-        app.push_screen(ExpeditionScreen(ctrl))
+        self.dismiss_and_push(ExpeditionScreen, ctrl)
 
 
 # ═══════════════════════════════════════════════════════════════════════
