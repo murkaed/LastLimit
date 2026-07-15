@@ -212,6 +212,7 @@ class GalaxyMapApp(App):
         self.race_selected = False
         self._pending_battle = None
         self._dismiss_handled_escape = False
+        self.world_frozen = False
         self._interaction_active = False
         self._init_player_position()
         self.update_map()
@@ -1366,6 +1367,40 @@ class GalaxyMapApp(App):
         self.update_map()
         self.update_info()
 
+    def on_screen_resume(self):
+        """Вызывается при возврате на основной экран после закрытия дочернего.
+
+        Размораживает мир, если игрок вернулся на карту галактики.
+        """
+        if len(self.screen_stack) <= 1:
+            self.world_frozen = False
+
+    def advance_world(self):
+        """Продвигает мир на один ход, если он не заморожен.
+
+        Вызывается только после действий игрока на карте
+        (движение, ожидание). Если мир заморожен (игрок в экране),
+        тик не происходит.
+        """
+        if self.world_frozen:
+            return
+        self.tick_world()
+
+    def push_screen(self, screen):
+        """Открывает экран поверх карты и замораживает мир.
+
+        Любой дочерний экран (мостик, бой, торговля, настройки)
+        должен заморозить глобальный мир, чтобы NPC двигались
+        и события происходили только на карте.
+
+        Parameters
+        ----------
+        screen : Screen
+            Экран для открытия.
+        """
+        self.world_frozen = True
+        super().push_screen(screen)
+
     def move_player(self, dx, dy):
         """Перемещает игрока по карте в заданном направлении.
 
@@ -1415,7 +1450,7 @@ class GalaxyMapApp(App):
         if moved > 0:
             self.ship.fuel = max(0, self.ship.fuel - 1)
             self.logger.movement(dn, self.player_x, self.player_y)
-            self.tick_world()
+            self.advance_world()
         # Check for pirate-initiated battle
         if self._pending_battle:
             enemy = self._pending_battle
@@ -2131,7 +2166,7 @@ class GalaxyMapApp(App):
             self.push_screen(BridgeScreen())
         elif event.key == " ":
             self.logger.system("Waiting…")
-            self.tick_world()
+            self.advance_world()
         elif event.key in ("`", "grave_accent", "asciitilde"):
             self.push_screen(CommandScreen())
 
