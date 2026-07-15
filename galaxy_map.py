@@ -1402,30 +1402,6 @@ class GalaxyMapApp(App):
         self.world_frozen = True
         super().push_screen(screen)
 
-    def dismiss_to_bridge(self, current_screen):
-        """Закрывает текущий экран и возвращается на мостик (или карту).
-
-        Если под текущим экраном только карта (нет мостика в стеке),
-        сначала открывает мостик, затем закрывает текущий экран.
-        Используется экранами управления кораблём, чтобы Esc вёл
-        на мостик, а не сразу на карту.
-
-        Parameters
-        ----------
-        current_screen : Screen
-            Экран, который нужно закрыть.
-        """
-        from ui import BridgeScreen
-        # Проверяем, есть ли мостик в стеке
-        has_bridge = any(isinstance(s, BridgeScreen) for s in self.screen_stack)
-        if has_bridge:
-            current_screen.dismiss()
-        else:
-            # Нет мостика — сначала закроем текущий экран,
-            # потом откроем мостик (world_frozen уже True)
-            current_screen.dismiss()
-            self.push_screen(BridgeScreen())
-
     def move_player(self, dx, dy):
         """Перемещает игрока по карте в заданном направлении.
 
