@@ -1,3 +1,5 @@
+# Модуль локализации: содержит словари переводов (RU/EN) и функции
+# для переключения языка и получения переведённых строк.
 """Localisation module — lazy translation with RU/EN dictionaries."""
 
 import re
@@ -6,6 +8,7 @@ import re
 # Language dictionaries
 # ---------------------------------------------------------------------------
 
+# Словарь русских переводов: все строки интерфейса, ресурсов, боёв и т.д.
 RU = {
     # ── General UI ──
     "ui.bridge.title": "МОСТИК",
@@ -207,6 +210,7 @@ RU = {
     "misc.durability": "Прочность",
 }
 
+# Словарь английских переводов: строки интерфейса на английском языке.
 EN = {
     # ── General UI ──
     "ui.bridge.title": "BRIDGE",
@@ -412,23 +416,42 @@ EN = {
 # Translation function
 # ---------------------------------------------------------------------------
 
-_current_lang = "ru"
-_dicts = {"ru": RU, "en": EN}
+_current_lang = "ru"  # Текущий активный язык (по умолчанию русский)
+_dicts = {"ru": RU, "en": EN}  # Сопоставление кода языка и словаря переводов
 
 
 def set_lang(lang):
-    """Set current language (ru/en)."""
+    """Установить текущий язык локализации.
+
+    Параметры:
+        lang (str): код языка — "ru" или "en".
+    """
     global _current_lang
     if lang in _dicts:
         _current_lang = lang
 
 
 def get_lang():
+    """Вернуть код текущего активного языка.
+
+    Возвращает:
+        str: "ru" или "en".
+    """
     return _current_lang
 
 
 def t(key, **kwargs):
-    """Translate a key, optionally formatting with kwargs."""
+    """Перевести строку по ключу, с опциональной подстановкой значений.
+
+    Параметры:
+        key (str): ключ перевода (например, "ui.bridge.title").
+        **kwargs: именованные аргументы для подстановки в строку
+                  (например, station="Alpha").
+
+    Возвращает:
+        str: переведённая строка. Если ключ не найден — возвращается
+             "❌{key}" как запасной вариант.
+    """
     d = _dicts.get(_current_lang, RU)
     val = d.get(key)
     if val is None:
@@ -440,7 +463,15 @@ def t(key, **kwargs):
 
 
 def t_lang(key, lang):
-    """Translate to a specific language (for settings display)."""
+    """Перевести строку на указанный язык (для отображения в настройках).
+
+    Параметры:
+        key (str): ключ перевода.
+        lang (str): код целевого языка ("ru" или "en").
+
+    Возвращает:
+        str: переведённая строка.
+    """
     d = _dicts.get(lang, RU)
     val = d.get(key)
     if val is None:

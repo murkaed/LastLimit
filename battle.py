@@ -1,4 +1,21 @@
 """Energy- and crew-aware turn-based combat system."""
+"""
+Файл: battle.py
+Назначение: пошаговая боевая система для космической игры LastLimit.
+
+Как работает боевая система:
+- Бой происходит между кораблём игрока и кораблём NPC (пират или торговец).
+- Очерёдность хода определяется скоростью кораблей (бросок кубика d6 + модификаторы).
+- В свой ход игрок может: атаковать выбранным оружием в отсек противника,
+  защищаться (восстановление щитов), использовать предметы/навыки или попытаться сбежать.
+- Урон рассчитывается с учётом генерации/потребления энергии корабля, точности,
+  уклонения противника, брони отсеков и бонусов экипажа.
+- При уничтожении отсека срабатывают штрафы COMP_EFFECTS (падение характеристик).
+- Система поддерживает критические попадания, восстановление энергии каждый ход,
+  использование расходников и специальных навыков.
+- NPC управляется ИИ: выбирает цели по приоритетам, использует ремонтные наборы
+  при низком уровне прочности и может убежать при критическом состоянии.
+"""
 
 import random
 from textual.screen import Screen
@@ -7,7 +24,7 @@ from textual.widgets import Static
 from config import RESOURCES, COMPARTMENTS
 
 # ---------------------------------------------------------------------------
-# Battle consumables
+# Расходники, доступные в бою (ремонт корпуса, топливо для энергии, усиление щита)
 # ---------------------------------------------------------------------------
 
 BATTLE_CONSUMABLES = {
@@ -16,13 +33,18 @@ BATTLE_CONSUMABLES = {
     "shield_booster": {"name": "Shield Booster", "desc": "Restore 15 shields", "effect": {"shield": 15}},
 }
 
+# ---------------------------------------------------------------------------
+# Особые навыки, требующие энергии (перегрузка щитов, точный выстрел, экстренный ремонт)
+# ---------------------------------------------------------------------------
+
 BATTLE_SKILLS = {
     "overload_shields": {"name": "Overload Shields", "desc": "Restore 30% shields (15e)", "energy_cost": 15},
     "precise_shot": {"name": "Precise Shot", "desc": "High-crit attack (10e)", "energy_cost": 10},
     "emergency_repair": {"name": "Emergency Repair", "desc": "Restore 30 hull (10e)", "energy_cost": 10},
 }
 
-# ── Compartment effects when destroyed ──────────────────────────────────
+# ── Штрафы к характеристикам при разрушении отсека ─────────────────────
+# Каждый отсек при уничтожении снижает определённые параметры корабля.
 COMP_EFFECTS = {
     "reactor":     {"power_bonus": -3},
     "engine":      {"evasion": -4, "speed": -1},
@@ -33,6 +55,8 @@ COMP_EFFECTS = {
     "cargo":       {},
 }
 
+# ── Приоритеты целей для разных типов NPC ──────────────────────────────
+# Определяют, в каком порядке ИИ атакует отсеки игрока.
 ENEMY_TARGET_PRIORITIES = {
     "pirate": ["shield", "weapon", "engine", "reactor", "sensor", "life_support", "cargo"],
     "trader": ["weapon", "engine", "shield", "reactor", "sensor", "life_support", "cargo"],
@@ -40,12 +64,33 @@ ENEMY_TARGET_PRIORITIES = {
 
 
 def _bar_s(current, maximum, width=10):
+    """Создаёт текстовую полосу прогресса из символов █ и ░.
+
+    Параметры:
+        current: текущее значение
+        maximum: максимальное значение
+        width: ширина полосы в символах (по умолчанию 10)
+
+    Возвращает:
+        строку вида "█████░░░░░"
+    """
     if maximum <= 0: return "░" * width
     filled = int(current / maximum * width)
     return "█" * filled + "░" * (width - filled)
 
 
 def _build_enemy_compartments(is_pirate):
+    """Создаёт структуру отсеков для вражеского корабля.
+
+    Заполняет каждый отсек модулями в зависимости от типа NPC.
+    Пираты получают более агрессивное оснащение, торговцы — гражданское.
+
+    Параметры:
+        is_pirate: True — пиратский корабль, False — торговец
+
+    Возвращает:
+        словарь отсеков с вложенными модулями и их характеристиками
+    """
     comps = {c: {"modules": [], "power": 3} for c in COMPARTMENTS}
     if is_pirate:
         comps["reactor"]["modules"].append({"name":"Scavenged Reactor","dur":40,"max_dur":40,"active":True,"armor":5})
@@ -57,6 +102,7 @@ def _build_enemy_compartments(is_pirate):
         comps["engine"]["modules"].append({"name":"Civilian Drive","dur":40,"max_dur":40,"active":True,"armor":5,"evasion":2})
         comps["weapon"]["modules"].append({"name":"Light Turret","dur":20,"max_dur":20,"active":True,"armor":5,"damage":5,"accuracy":50})
         comps["shield"]["modules"].append({"name":"Basic Shield","dur":35,"max_dur":35,"active":True,"armor":5,"shield_cap":15,"shield_regen":2})
+    # Общие для всех NPC отсеки
     comps["sensor"]["modules"].append({"name":"Scanner","dur":20,"max_dur":20,"active":True,"armor":3})
     comps["life_support"]["modules"].append({"name":"Life Support","dur":20,"max_dur":20,"active":True,"armor":3})
     comps["cargo"]["modules"].append({"name":"Cargo Bay","dur":20,"max_dur":20,"active":True,"armor":3})
@@ -64,6 +110,15 @@ def _build_enemy_compartments(is_pirate):
 
 
 def _total_enemy_stat(comps, key):
+    """Суммирует указанную характеристику по всем активным модулям врага.
+
+    Параметры:
+        comps: словарь отсеков врага
+        key: имя характеристики (например, "damage", "evasion")
+
+    Возвращает:
+        суммарное значение характеристики по всем живым модулям
+    """
     total = 0
     for c in COMPARTMENTS:
         for m in comps[c]["modules"]:
@@ -73,6 +128,18 @@ def _total_enemy_stat(comps, key):
 
 
 def _compartment_status_str(comp, comp_data, width=10):
+    """Формирует строку состояния отсека с полосой прочности.
+
+    Если все модули отсека уничтожены — помечает отсек как [☠DESTROYED].
+
+    Параметры:
+        comp: название отсека
+        comp_data: данные отсека (словарь с ключом "modules")
+        width: ширина полосы прочности
+
+    Возвращает:
+        отформатированную строку состояния
+    """
     alive = [m for m in comp_data["modules"] if m.get("active") and m.get("dur", 0) > 0]
     total_dur = sum(m.get("dur", 0) for m in alive)
     max_dur = sum(m.get("max_dur", 1) for m in comp_data["modules"] if m.get("active", True))
@@ -84,36 +151,65 @@ def _compartment_status_str(comp, comp_data, width=10):
 
 
 class BattleController:
-    """Handles combat logic with energy, crew bonuses, and compartment effects."""
+    """Управляет логикой пошагового боя.
+
+    Содержит состояние боя: характеристики игрока и врага, энергию, очерёдность хода,
+    логирование событий. Реализует действия: атака, защита, использование предметов,
+    применение навыков, побег. Обрабатывает ход врага (ИИ), проверки смерти,
+    начисление награды при победе.
+    """
 
     def __init__(self, player_ship, enemy_npc, app, selected_weapon_idx=0):
-        self.player = player_ship
-        self.enemy = enemy_npc
-        self.app = app
-        self.is_pirate = type(enemy_npc).__name__ == "PirateShip"
-        self.enemy_comps = _build_enemy_compartments(self.is_pirate)
-        self.enemy_max_hull = enemy_npc.max_hull
-        self.enemy_shield_cap = getattr(enemy_npc, "shield_hp", 0) or _total_enemy_stat(self.enemy_comps, "shield_cap")
-        self.enemy_items = ["repair_kit"] if random.random() < 0.3 else []
-        self.player_energy = 50
-        self.player_max_energy = 50
-        self.selected_weapon_idx = selected_weapon_idx
-        self.log = []
-        self.over = False
-        self.victory = False
-        self.player_defending = False
-        self._compute_turn_order()
+        """Инициализирует контроллер боя.
+
+        Параметры:
+            player_ship: объект корабля игрока
+            enemy_npc: объект корабля противника
+            app: ссылка на главное приложение (для обратного вызова)
+            selected_weapon_idx: индекс выбранного оружия (по умолчанию 0)
+        """
+        self.player = player_ship  # корабль игрока
+        self.enemy = enemy_npc  # корабль противника
+        self.app = app  # главное приложение
+        self.is_pirate = type(enemy_npc).__name__ == "PirateShip"  # тип врага: пират или торговец
+        self.enemy_comps = _build_enemy_compartments(self.is_pirate)  # отсеки вражеского корабля
+        self.enemy_max_hull = enemy_npc.max_hull  # максимальная прочность корпуса врага
+        self.enemy_shield_cap = getattr(enemy_npc, "shield_hp", 0) or _total_enemy_stat(self.enemy_comps, "shield_cap")  # ёмкость щита врага
+        self.enemy_items = ["repair_kit"] if random.random() < 0.3 else []  # предметы врага (30% шанс получить ремкомплект)
+        self.player_energy = 50  # текущая энергия игрока
+        self.player_max_energy = 50  # максимальная энергия игрока
+        self.selected_weapon_idx = selected_weapon_idx  # индекс выбранного оружия
+        self.log = []  # лог событий боя
+        self.over = False  # флаг окончания боя
+        self.victory = False  # флаг победы игрока
+        self.player_defending = False  # флаг: игрок в защите в текущий ход
+        self._compute_turn_order()  # определить, кто ходит первым
 
     def _get_player_weapons(self):
+        """Возвращает список активных (не сломанных) модулей оружия игрока."""
         return [m for m in self.player.compartments["weapon"]["modules"] if m.active and not m.is_broken()]
 
     def _player_evasion(self):
+        """Возвращает показатель уклонения корабля игрока."""
         return self.player.get_effective_stats().get("evasion", 0)
 
     def _crew_bonus(self, key):
+        """Возвращает бонус экипажа по указанной характеристике.
+
+        Параметры:
+            key: имя характеристики (например, "speed", "accuracy", "damage")
+
+        Возвращает:
+            числовое значение бонуса (0, если метод _crew_bonus отсутствует)
+        """
         return self.player._crew_bonus(key, 0) if hasattr(self.player, "_crew_bonus") else 0
 
     def _compute_turn_order(self):
+        """Определяет очерёдность хода на основе скорости и броска кубика d6.
+
+        Каждая сторона кидает d6 и добавляет модификатор скорости.
+        У кого сумма больше — тот ходит первым.
+        """
         p_spd = self.player.get_effective_stats().get("speed", 1) + self._crew_bonus("speed")
         e_spd = _total_enemy_stat(self.enemy_comps, "evasion") // 5 + 2
         p_roll = p_spd + random.randint(1, 6)
@@ -126,11 +222,25 @@ class BattleController:
             self.add_log(f"▶ {self.player.name} moves first!")
 
     def add_log(self, msg):
+        """Добавляет запись в лог боя. Лог обрезается до последних 30 записей.
+
+        Параметры:
+            msg: текст сообщения
+        """
         self.log.append(msg)
         if len(self.log) > 30:
             self.log = self.log[-30:]
 
     def _enemy_stat_with_effects(self, key, default=0):
+        """Вычисляет характеристику врага с учётом штрафов от разрушенных отсеков.
+
+        Параметры:
+            key: имя характеристики
+            default: значение по умолчанию, если характеристика не найдена (по умолчанию 0)
+
+        Возвращает:
+            итоговое значение характеристики (не меньше 0)
+        """
         base = _total_enemy_stat(self.enemy_comps, key) or default
         penalty = 0
         for c in COMPARTMENTS:
@@ -140,6 +250,11 @@ class BattleController:
         return max(0, base + penalty)
 
     def _regen_player_energy(self):
+        """Восстанавливает энергию игрока в конце каждого хода.
+
+        Величина восстановления зависит от мощности реактора и бонуса экипажа.
+        Минимум 5 единиц за ход.
+        """
         reactor_power = self.player.total_power_generated()
         eng_bonus = self._crew_bonus("power_bonus") // 10
         regen = max(5, reactor_power // 2) + eng_bonus
@@ -148,9 +263,19 @@ class BattleController:
         if self.player_energy > old:
             self.add_log(f"⚡ Energy +{self.player_energy - old} (regen {regen}).")
 
-    # ── Actions ────────────────────────────────────────────────────────
+    # ── Действия игрока ───────────────────────────────────────────────
 
     def do_attack(self, weapon_idx, target_comp=None):
+        """Выполняет атаку выбранным оружием по указанному отсеку.
+
+        Учитывает: энергопотребление оружия, эффективность энергосистемы,
+        бонусы экипажа к точности и урону, уклонение врага, броню отсека,
+        поглощение урона щитами, шанс критического попадания.
+
+        Параметры:
+            weapon_idx: индекс оружия в списке активного оружия
+            target_comp: название целевого отсека (если None — выбирается случайно)
+        """
         self.player_defending = False
         weapons = self._get_player_weapons()
         if not weapons:
@@ -161,36 +286,44 @@ class BattleController:
         accuracy = weapon.stats.get("accuracy", 70)
         weapon_name = weapon.name
         en_cost = weapon.energy_consumption
+        # Проверка: хватает ли энергии на выстрел
         if self.player_energy < en_cost:
             self.add_log(f"⚡ Need {en_cost}e for {weapon_name} (have {self.player_energy}).")
             self._next_turn(); return
         self.player_energy -= en_cost
+        # Модификатор урона от эффективности энергосистемы
         p_gen = self.player.total_power_generated()
         p_con = self.player.total_power_consumed()
         eff = min(1.5, p_gen / max(1, p_con))
         damage = max(1, int(base_dmg * eff))
+        # Бонусы экипажа
         crew_acc = self._crew_bonus("accuracy")
         crew_dmg = self._crew_bonus("damage")
         accuracy += crew_acc
         damage += crew_dmg
+        # Проверка попадания
         e_evasion = self._enemy_stat_with_effects("evasion")
         hit_chance = max(5, min(95, accuracy - e_evasion))
         is_crit = random.random() < 0.10 + self._crew_bonus("accuracy") * 0.002
         if random.random() * 100 >= hit_chance:
             self.add_log(f"✗ {weapon_name} missed!")
             self._next_turn(); return
+        # Критический удар — удвоение урона
         if is_crit:
             damage = int(damage * 2)
             self.add_log(f"★ CRITICAL!")
+        # Выбор цели
         if target_comp is None or target_comp not in self.enemy_comps:
             target_comp = random.choice(COMPARTMENTS)
         comp = self.enemy_comps[target_comp]
+        # Поглощение урона щитами
         if self.enemy.shield_hp > 0:
             absorbed = min(self.enemy.shield_hp, damage)
             self.enemy.shield_hp -= absorbed
             damage -= absorbed
             if absorbed > 0:
                 self.add_log(f"🛡 Shield absorbed {absorbed}.")
+        # Пробитие брони и нанесение урона модулю
         if damage > 0:
             armor = sum(m.get("armor", 0) for m in comp["modules"])
             damage = max(1, damage - armor // 3)
@@ -207,11 +340,17 @@ class BattleController:
                 self.enemy.hull = max(0, self.enemy.hull - damage)
                 self.add_log(f"💢 Hull hit! -{damage}")
         self.add_log(f"→ {weapon_name} @ {target_comp}  {'★' if is_crit else ''}")
+        # Проверка: уничтожен ли враг
         if self.enemy.hull <= 0:
             self._on_enemy_defeated(); return
         self._next_turn()
 
     def do_defend(self):
+        """Переводит корабль в режим защиты.
+
+        Щиты восстанавливаются с удвоенной скоростью.
+        Входящий урон в этом ходу будет уменьшен вдвое.
+        """
         self.player_defending = True
         stats = self.player.get_effective_stats()
         regen = stats.get("shield_regen", 0) * 2 + self._crew_bonus("regen")
@@ -222,6 +361,11 @@ class BattleController:
         self._next_turn()
 
     def do_use_item(self, item_rid):
+        """Использует расходный предмет из трюма игрока.
+
+        Параметры:
+            item_rid: идентификатор предмета (например, "repair_kit", "fuel_cell")
+        """
         self.player_defending = False
         info = BATTLE_CONSUMABLES.get(item_rid)
         if not info: self.add_log(f"Unknown '{item_rid}'."); return
@@ -243,6 +387,16 @@ class BattleController:
         self._next_turn()
 
     def do_skill(self, skill_id):
+        """Применяет особый навык, расходующий энергию.
+
+        Доступные навыки:
+        - overload_shields: восстанавливает 30% щита
+        - precise_shot: атака с высоким шансом крита
+        - emergency_repair: восстанавливает 30 единиц корпуса
+
+        Параметры:
+            skill_id: идентификатор навыка
+        """
         self.player_defending = False
         skill = BATTLE_SKILLS.get(skill_id)
         if not skill: return
@@ -267,6 +421,12 @@ class BattleController:
         self._next_turn()
 
     def do_escape(self):
+        """Пытается сбежать из боя.
+
+        Шанс побега зависит от разницы скоростей кораблей.
+        База 40% с модификатором +5% за каждую единицу разницы скорости.
+        Шанс ограничен диапазоном [10%, 90%].
+        """
         p_spd = self.player.get_effective_stats().get("speed", 1) + self._crew_bonus("speed")
         e_spd = _total_enemy_stat(self.enemy_comps, "evasion") // 5 + 2
         base = 40 + (p_spd - e_spd) * 5
@@ -277,11 +437,21 @@ class BattleController:
             self.add_log("✗ Escape failed!"); self._next_turn()
 
     def _next_turn(self):
+        """Завершает ход игрока: восстанавливает энергию и запускает ход врага."""
         if self.over: return
         self._regen_player_energy()
         self._do_enemy_turn()
 
     def _do_enemy_turn(self):
+        """Реализует ход врага под управлением ИИ.
+
+        Логика ИИ:
+        - Восстанавливает щиты
+        - При низком уровне корпуса (<30%) использует ремкомплект
+        - При критическом уровне корпуса (<20%) с вероятностью 40% пытается сбежать
+        - Атакует приоритетные отсеки игрока выбранным оружием
+        - Если оружия нет — таранит корабль игрока
+        """
         if self.over: return
         regen = _total_enemy_stat(self.enemy_comps, "shield_regen")
         self.enemy.shield_hp = min(self.enemy_shield_cap, self.enemy.shield_hp + regen)
@@ -289,14 +459,17 @@ class BattleController:
         shield_pct = self.enemy.shield_hp / max(1, self.enemy_shield_cap)
         weapons = [m for m in self.enemy_comps["weapon"]["modules"] if m.get("active") and m.get("dur", 0) > 0]
         priorities = ENEMY_TARGET_PRIORITIES.get("pirate" if self.is_pirate else "trader", COMPARTMENTS)
+        # Использование ремкомплекта при низком уровне корпуса
         if hull_pct < 0.3 and "repair_kit" in self.enemy_items:
             self.enemy_items.remove("repair_kit")
             self.enemy.hull = min(self.enemy_max_hull, self.enemy.hull + 20)
             self.add_log(f"☠ {self.enemy.name} uses Repair Kit!")
             self._check_player_death(); return
+        # Попытка побега при критическом уровне корпуса
         elif hull_pct < 0.2 and random.random() < 0.4:
             if random.random() < 0.5:
                 self.add_log(f"☠ {self.enemy.name} fled!"); self.over = True; self.victory = True; return
+        # Атака оружием или таран
         if weapons:
             weapon = random.choice(weapons)
             base_dmg = weapon.get("damage", 8)
@@ -304,13 +477,15 @@ class BattleController:
             hit_chance = max(5, min(95, acc - self._player_evasion()))
             if random.random() * 100 < hit_chance:
                 damage = base_dmg
-                if self.player_defending: damage = max(1, damage // 2)
+                if self.player_defending: damage = max(1, damage // 2)  # защита уменьшает урон вдвое
                 viable = [c for c in priorities if self.enemy_comps[c]["modules"]]
                 tcomp = viable[0] if viable else random.choice(COMPARTMENTS)
                 target = self.player.compartments[tcomp]
+                # Поглощение урона щитами игрока
                 if self.player.shield_hp > 0:
                     absorbed = min(self.player.shield_hp, damage)
                     self.player.shield_hp -= absorbed; damage -= absorbed
+                # Нанесение урона модулю или корпусу
                 if damage > 0:
                     alive = [m for m in target["modules"] if m.active and not m.is_broken()]
                     if alive:
@@ -325,6 +500,7 @@ class BattleController:
             else:
                 self.add_log(f"☠ {self.enemy.name} missed!")
         else:
+            # Таран — если у врага нет оружия
             dmg = 10
             if self.player_defending: dmg = max(1, dmg // 2)
             self.player.take_damage(dmg)
@@ -332,9 +508,15 @@ class BattleController:
         self._check_player_death()
 
     def _check_player_death(self):
+        """Проверяет, не уничтожен ли корабль игрока. Если да — вызывает поражение."""
         if self.player.hull <= 0: self._on_player_defeated()
 
     def _on_enemy_defeated(self):
+        """Обрабатывает победу игрока: начисляет кредиты, трофеи, репутацию.
+
+        Лут: случайное количество кредитов (50-150), случайный предмет (1-3 единицы).
+        За победу над пиратом повышается репутация у свободных торговцев.
+        """
         self.over = True; self.victory = True
         loot_cr = random.randint(50, 150)
         self.player.credits += loot_cr
@@ -348,12 +530,21 @@ class BattleController:
             self.app.logger.combat(f"★ Victory! +{loot_cr}cr, {amt}×{loot_item}.")
 
     def _on_player_defeated(self):
+        """Обрабатывает поражение игрока: завершает бой и записывает причину смерти."""
         self.over = True; self.victory = False
         self.add_log(f"☠ {self.player.name} destroyed...")
         if hasattr(self.app, "death_cause"):
             self.app.death_cause = f"Destroyed by {self.enemy.name}."
 
     def debug_enemy_status(self):
+        """Возвращает отладочную строку с состоянием всех отсеков врага.
+
+        Для каждого отсека выводит список живых модулей с их прочностью
+        или пометку DESTROYED, если отсек уничтожен.
+
+        Возвращает:
+            строку с информацией для отладки
+        """
         lines = []
         for c in COMPARTMENTS:
             alive = [m for m in self.enemy_comps[c]["modules"] if m.get("active") and m.get("dur", 0) > 0]
@@ -366,26 +557,43 @@ class BattleController:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# BattleScreen
+# BattleScreen — экран боя (Textual)
 # ═══════════════════════════════════════════════════════════════════════
 
 class BattleScreen(Screen):
-    """Turn-based battle with compartment targeting."""
+    """Текстовый экран боя на базе Textual.
+
+    Отображает состояние боя: здоровье/щиты/энергию обеих сторон,
+    схему отсеков врага, лог событий и меню действий.
+    Управляется с клавиатуры через on_key.
+    """
 
     def __init__(self, controller: BattleController):
+        """Инициализирует экран боя.
+
+        Параметры:
+            controller: экземпляр BattleController, управляющий логикой боя
+        """
         super().__init__()
-        self.ctrl = controller
-        self.menu_state = "main"
-        self.menu_index = 0
-        self.selected_weapon_idx = controller.selected_weapon_idx
+        self.ctrl = controller  # контроллер боя
+        self.menu_state = "main"  # текущее состояние меню (main / attack_weapon / attack_target / items / skills)
+        self.menu_index = 0  # индекс в текущем меню
+        self.selected_weapon_idx = controller.selected_weapon_idx  # индекс выбранного оружия
 
     def compose(self):
+        """Создаёт виджеты экрана. Содержит один Static-виджет с id 'battle-content'."""
         yield Static(id="battle-content")
 
     def on_mount(self):
+        """Вызывается при монтировании экрана. Обновляет отображение."""
         self._update_display()
 
     def _update_display(self):
+        """Перерисовывает весь экран боя: статусы, отсеки врага, лог, меню.
+
+        Формирует панель с информацией о кораблях (H/S/E), состоянием отсеков
+        противника, последними записями лога и текущим меню действий.
+        """
         c = self.ctrl
         lines = []
         W = 74
@@ -405,7 +613,7 @@ class BattleScreen(Screen):
         e_bar = _bar_s(c.player_energy, c.player_max_energy, 12)
         lines.append(f"  │  E:{e_bar} {c.player_energy:>2}/{c.player_max_energy:<2}{'':>32}  │")
 
-        # ── Compartment schematic ──
+        # ── Схема отсеков врага ──
         lines.append(f"  │  {'─' * (W-6)}  │")
         lines.append(f"  │  {'ENEMY COMPARTMENTS':^{W-6}}  │")
         lines.append(f"  │  {'─' * (W-6)}  │")
@@ -415,12 +623,12 @@ class BattleScreen(Screen):
             marker = f"[{i+1}]" if not c.over else "   "
             lines.append(f"  │  {marker} {status:<30}{'':>35}  │")
 
-        # ── Battle log ──
+        # ── Лог боя (последние 5 записей) ──
         lines.append(f"  │  {'─' * (W-6)}  │")
         for entry in c.log[-5:]:
             lines.append(f"  │  {entry:<{W-6}}  │")
 
-        # ── Menu ──
+        # ── Меню действий ──
         lines.append(f"  │  {'─' * (W-6)}  │")
         if c.over:
             msg = "★ VICTORY! ★" if c.victory else "☠ DEFEATED ☠"
@@ -437,6 +645,11 @@ class BattleScreen(Screen):
         self.query_one("#battle-content").update("\n".join(lines))
 
     def _render_menu(self):
+        """Формирует список строк текущего меню в зависимости от состояния.
+
+        Возвращает:
+            список строк для отображения в нижней части экрана боя
+        """
         ms = self.menu_state; c = self.ctrl
         if ms == "main":
             return [
@@ -471,6 +684,14 @@ class BattleScreen(Screen):
         return []
 
     def on_key(self, event):
+        """Обрабатывает нажатия клавиш в зависимости от текущего состояния меню.
+
+        Если бой окончен — закрывает экран и применяет результат.
+        Иначе маршрутизирует нажатие в соответствующую ветку меню.
+
+        Параметры:
+            event: событие нажатия клавиши
+        """
         c = self.ctrl
         if c.over: self._apply_outcome(); self.dismiss(); return
         event.stop()
@@ -511,6 +732,11 @@ class BattleScreen(Screen):
             self._update_display()
 
     def _apply_outcome(self):
+        """Применяет результат боя к состоянию игры.
+
+        При поражении устанавливает GameState.GAME_OVER и записывает причину смерти.
+        Обновляет карту и информационную панель в приложении.
+        """
         c = self.ctrl; app = self.app
         if not c.victory and c.player.hull <= 0:
             if hasattr(app, "GameState"):

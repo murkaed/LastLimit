@@ -1,25 +1,36 @@
+# ============================================================================
+# config.py — Конфигурация и игровые константы
+#
+# Этот файл содержит все настройки, таблицы и константы игры LastLimit:
+# размеры экрана, типы тайлов карты, ресурсы, расы, религии, фракции,
+# модули кораблей, корпуса кораблей, рецепты крафта, улучшения, экипаж,
+# параметры сканирования, наземные объекты, оружие и броня для экспедиций,
+# настройки управления и типы станций. Файл не содержит игровой логики —
+# только данные.
+# ============================================================================
+
 """Game constants and data definitions."""
 
-WIDTH, HEIGHT = 80, 40
+WIDTH, HEIGHT = 80, 40  # ширина и высота игрового поля в символах
 
-TILE_EMPTY = "·"
-TILE_STAR = "*"
-TILE_PLANET = "o"
-TILE_STATION = "☐"
-TILE_BLACK_HOLE = "◉"
-TILE_WORMHOLE = "⭕"
-TILE_ASTEROIDS = "░"
-TILE_SHIP = "@"
-TILE_OTHER_SHIP = "▲"
-TILE_CURSOR = "◈"
-TILE_TRADER = "T"
-TILE_PIRATE = "P"
+TILE_EMPTY = "·"        # пустое пространство
+TILE_STAR = "*"          # звезда
+TILE_PLANET = "o"        # планета
+TILE_STATION = "☐"       # космическая станция
+TILE_BLACK_HOLE = "◉"    # чёрная дыра
+TILE_WORMHOLE = "⭕"      # варп-врата / червоточина
+TILE_ASTEROIDS = "░"     # астероидное поле
+TILE_SHIP = "@"          # корабль игрока
+TILE_OTHER_SHIP = "▲"    # корабль другого персонажа
+TILE_CURSOR = "◈"        # курсор выбора
+TILE_TRADER = "T"        # торговец
+TILE_PIRATE = "P"        # пират
 
 DIR_LABELS = {
     (-1, -1): "NW", (0, -1): "N",  (1, -1): "NE",
     (-1,  0): "W",                  (1,  0): "E",
     (-1,  1): "SW", (0,  1): "S",  (1,  1): "SE",
-}
+}  # соответствие между смещением (dx, dy) и текстовым названием направления
 
 RESOURCES = {
     "ore":        {"name": "Ore",           "cat": "raw",      "base_price": 5},
@@ -32,7 +43,7 @@ RESOURCES = {
     "relic":        {"name": "Alien Relic",   "cat": "special",  "base_price": 500},
     "repair_kit":   {"name": "Repair Kit",    "cat": "consumable", "base_price": 50},
     "shield_booster": {"name": "Shield Booster", "cat": "consumable", "base_price": 80},
-}
+}  # все типы ресурсов: категория (сырьё / переработанное / продвинутое / особое / расходник) и базовая цена
 
 RACES = {
     "human":       {"name": "Human"},
@@ -40,14 +51,14 @@ RACES = {
     "xenos_bio":   {"name": "Xenos Bio"},
     "machine_cult":{"name": "Machine"},
     "voidborn":    {"name": "Voidborn"},
-}
+}  # доступные расы персонажей
 
 RELIGIONS = {
     "orthodox_church": {"name": "Orthodox Church"},
     "cult_of_the_void":{"name": "Cult of Void"},
     "machine_god":     {"name": "Machine God"},
     "old_faith":       {"name": "Old Faith"},
-}
+}  # доступные религии
 
 FACTIONS = {
     "imperium":           {"name": "Imperium"},
@@ -56,14 +67,14 @@ FACTIONS = {
     "machine_collective": {"name": "Machine Collective"},
     "free_traders":       {"name": "Free Traders"},
     "void_covenant":      {"name": "Void Covenant"},
-}
+}  # игровые фракции
 
 CONTRABAND = {
     "imperium":          ["relic"],
     "orthodox_church":   ["relic"],
     "chaos_cult":        ["shield_mod"],
     "free_traders":      [],
-}
+}  # список контрабандных ресурсов для каждой фракции
 
 SHIP_MODULES = {
     "fusion_reactor":{"name":"Fusion Reactor","comp":"reactor","energy":0,"power":12,
@@ -86,9 +97,10 @@ SHIP_MODULES = {
                      "cost":500,"durability":100,"desc":"+20 hull"},
     "warp_drive":{"name":"Warp Drive","comp":"engine","energy":3,"speed":2,"evasion":5,
                   "cost":1200,"durability":60,"desc":"Speed +2, evasion +5"},
-}
+}  # все модули корабля: отсек, потребление энергии, характеристики, стоимость
 
 COMPARTMENTS = ["reactor", "engine", "weapon", "shield", "sensor", "life_support", "cargo"]
+# список типов отсеков корабля
 
 # ---------------------------------------------------------------------------
 # Ship hulls
@@ -131,7 +143,7 @@ SHIP_HULLS = {
         "cost": 15000,
         "desc": "Capital ship — maximum firepower and durability.",
     },
-}
+}  # доступные корпуса кораблей с базовыми характеристиками
 
 # ---------------------------------------------------------------------------
 # Crafting recipes
@@ -168,7 +180,7 @@ RECIPES = {
         "craft_time": 7,
         "desc": "Basic engine module",
     },
-}
+}  # рецепты крафта: входные ресурсы и время изготовления
 
 # ---------------------------------------------------------------------------
 # Permanent hull upgrades
@@ -210,7 +222,7 @@ UPGRADES = {
         "bonus": {"speed": 1},
         "desc": "+1 base speed",
     },
-}
+}  # постоянные улучшения корпуса: цена, материалы, бонус
 
 # ---------------------------------------------------------------------------
 # Crew
@@ -222,22 +234,22 @@ CREW_SPECIALTIES = {
     "Tactician": {"name": "Tactician", "posts": ["Tactical"],  "bonus": {"accuracy": 10, "damage": 5}},
     "Scientist": {"name": "Scientist", "posts": ["Scientist"], "bonus": {"sensor_range": 2, "scanner": 10}},
     "Medic":     {"name": "Medic",     "posts": ["Engineer"],  "bonus": {"hull_regen": 3}},
-}
+}  # специальности членов экипажа и их бонусы
 
 CREW_NAMES = [
     "Zara", "Kael", "Mira", "Rex", "Lyra", "Torg", "Nyx", "Fynn",
     "Echo", "Vex", "Juno", "Orin", "Sage", "Bolt", "Ivy", "Grim",
-]
+]  # пул имён для генерации членов экипажа
 
 # ---------------------------------------------------------------------------
 # Scan system
 # ---------------------------------------------------------------------------
 
-SCAN_ACTIVE_COST = 1       # energy per active scan
-SCAN_DEEP_COST = 5         # energy per deep scan
-SCAN_PASSIVE_RADIUS = 7    # default passive sensor range
-SCAN_ACTIVE_RADIUS = 12    # active scan radius
-SCAN_DEEP_RADIUS = 8       # deep scan radius
+SCAN_ACTIVE_COST = 1       # энергия за активное сканирование
+SCAN_DEEP_COST = 5         # энергия за глубокое сканирование
+SCAN_PASSIVE_RADIUS = 7    # радиус пассивного обзора (по умолчанию)
+SCAN_ACTIVE_RADIUS = 12    # радиус активного сканирования
+SCAN_DEEP_RADIUS = 8       # радиус глубокого сканирования
 
 SCAN_SIGNAL_TYPES = {
     "distress":  {"weight": 30, "title": "Distress Signal",  "missions": ["rescue", "deliver"]},
@@ -245,7 +257,7 @@ SCAN_SIGNAL_TYPES = {
     "wreckage":  {"weight": 25, "title": "Wreckage Field",   "missions": ["salvage", "investigate"]},
     "pirate":    {"weight": 15, "title": "Pirate Outpost",   "missions": ["bounty"]},
     "artifact":  {"weight": 10, "title": "Artifact Reading", "missions": ["exploration", "investigate"]},
-}
+}  # типы сигналов при сканировании: вес появления, название и подходящие миссии
 
 # ---------------------------------------------------------------------------
 # Expedition / ground tiles
@@ -264,35 +276,35 @@ GROUND_TILES = {
     "enemy":      {"ch": "E", "passable": False, "name": "Enemy"},
     "player":     {"ch": "@", "passable": False, "name": "Player"},
     "void":       {"ch": " ", "passable": False, "name": "Void"},
-}
+}  # типы тайлов наземных экспедиций: символ, проходимость, свойства
 
 GROUND_ENEMIES = {
     "bandit":  {"name": "Bandit",  "hp": 20, "max_hp": 20, "dmg": 5,  "accuracy": 50, "evasion": 5,  "ap": 4, "ch": "E"},
     "drone":   {"name": "Drone",   "hp": 12, "max_hp": 12, "dmg": 3,  "accuracy": 60, "evasion": 10, "ap": 5, "ch": "E"},
     "mutant":  {"name": "Mutant",  "hp": 35, "max_hp": 35, "dmg": 8,  "accuracy": 40, "evasion": 3,  "ap": 4, "ch": "E"},
     "turret":  {"name": "Turret",  "hp": 25, "max_hp": 25, "dmg": 6,  "accuracy": 70, "evasion": 0,  "ap": 3, "ch": "E"},
-}
+}  # типы врагов в наземных экспедициях
 
 GROUND_WEAPONS = {
     "pistol":   {"name": "Pistol",  "dmg": 4,  "accuracy": 75, "ap_cost": 2, "range": 4},
     "rifle":    {"name": "Rifle",   "dmg": 7,  "accuracy": 65, "ap_cost": 3, "range": 6},
     "shotgun":  {"name": "Shotgun", "dmg": 10, "accuracy": 50, "ap_cost": 3, "range": 3},
     "knife":    {"name": "Knife",   "dmg": 3,  "accuracy": 85, "ap_cost": 1, "range": 1},
-}
+}  # наземное оружие для экспедиций
 
 GROUND_ARMOR = {
     "none":     {"name": "None",   "defense": 0},
     "vest":     {"name": "Vest",   "defense": 3},
     "combat":   {"name": "Combat", "defense": 5},
-}
+}  # наземная броня для экспедиций
 
-EXPEDITION_FOV_RADIUS = 6
+EXPEDITION_FOV_RADIUS = 6  # радиус обзора (FOV) в наземных экспедициях
 
 # ---------------------------------------------------------------------------
 # Settings — defaults
 # ---------------------------------------------------------------------------
 
-SETTINGS_FILE = "settings.json"
+SETTINGS_FILE = "settings.json"  # путь к файлу с сохранёнными настройками
 
 DEFAULT_SETTINGS = {
     "lang": "ru",
@@ -312,7 +324,7 @@ DEFAULT_SETTINGS = {
         "wait": "space",
         "action_menu": "e",
     },
-}
+}  # настройки по умолчанию: язык, автосохранение, раскладка клавиш
 
 # ---------------------------------------------------------------------------
 # Station types expanded
@@ -326,7 +338,7 @@ STATION_TYPES = {
     "shipyard":    {"name": "Shipyard",   "hulls": list(SHIP_HULLS)},
     "workshop":    {"name": "Workshop",   "recipes": list(RECIPES)},
     "tavern":      {"name": "Tavern",     "crew_slots": 4},
-}
+}  # типы станций и их особенности
 
 
 # ---------------------------------------------------------------------------
@@ -334,7 +346,15 @@ STATION_TYPES = {
 # ---------------------------------------------------------------------------
 
 def load_settings():
-    """Load settings from JSON file, returns dict."""
+    """
+    Загружает настройки из JSON-файла.
+
+    Если файл не существует или повреждён, возвращает настройки по умолчанию.
+    Отсутствующие ключи заполняются значениями по умолчанию (слияние словарей).
+
+    Returns:
+        dict: Словарь с настройками игры.
+    """
     import json, os
     if not os.path.exists(SETTINGS_FILE):
         return dict(DEFAULT_SETTINGS)
@@ -350,7 +370,12 @@ def load_settings():
 
 
 def save_settings(settings):
-    """Save settings to JSON file."""
+    """
+    Сохраняет настройки в JSON-файл.
+
+    Args:
+        settings (dict): Словарь с настройками для сохранения.
+    """
     import json
     try:
         with open(SETTINGS_FILE, "w", encoding="utf-8") as f:

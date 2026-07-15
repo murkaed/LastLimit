@@ -1,3 +1,6 @@
+# Фикстуры pytest для всех модульных тестов проекта.
+# Предоставляют предварительно настроенные объекты: корабль игрока,
+# станцию, галактику, NPC, членов экипажа, модули, миссии и т.д.
 """Shared fixtures for all tests."""
 
 import pytest
@@ -13,7 +16,12 @@ from config import load_settings, save_settings
 
 @pytest.fixture
 def player_ship():
-    """Player ship with basic modules, some cargo, and credits."""
+    """Вернуть корабль игрока с базовыми модулями, грузом и кредитами.
+
+    Возвращает:
+        PlayerShip: корабль "TestShip" с 5000 кредитов, 80 топлива
+                    и небольшим запасом ресурсов.
+    """
     s = PlayerShip("TestShip", 100)
     s.credits = 5000
     s.fuel = 80
@@ -27,16 +35,27 @@ def player_ship():
 
 @pytest.fixture
 def empty_ship():
-    """Player ship with no cargo, minimal hull."""
+    """Вернуть корабль игрока с минимальным корпусом и без груза.
+
+    Возвращает:
+        PlayerShip: корабль "Minimal" с 50 хп корпуса, без груза.
+    """
     return PlayerShip("Minimal", 50)
 
 
 @pytest.fixture
 def station():
-    """A trade hub station with standard inventory."""
+    """Вернуть торговую станцию со стандартным ассортиментом.
+
+    Создаёт Galaxy для получения корректной карты цен, затем —
+    Station типа "trade_hub" с предустановленным инвентарём.
+
+    Возвращает:
+        Station: станция "TestHub" на координатах (10, 10).
+    """
     g = Galaxy()
     s = Station(10, 10, "TestHub", "trade_hub", "free_traders")
-    # Ensure standard inventory
+    # Устанавливаем стандартный инвентарь для предсказуемости тестов
     s.inventory = {"metal": 30, "food": 20, "electronics": 10, "ice": 15}
     s.update_prices()
     return s
@@ -44,16 +63,24 @@ def station():
 
 @pytest.fixture
 def galaxy():
-    """Small galaxy with fixed seed for reproducibility."""
-    random.seed(42)
+    """Вернуть небольшую галактику с фиксированным seed для воспроизводимости.
+
+    Возвращает:
+        Galaxy: галактика 30x20, сгенерированная с random.seed(42).
+    """
+    random.seed(42)  # Фиксируем seed, чтобы тесты были детерминированы
     g = Galaxy(width=30, height=20)
-    random.seed()
+    random.seed()  # Сбрасываем seed, чтобы не влиять на другие тесты
     return g
 
 
 @pytest.fixture
 def pirate():
-    """A pirate NPC ship."""
+    """Вернуть NPC-корабль пирата с базовыми характеристиками.
+
+    Возвращает:
+        PirateShip: пират "Raider" с 40 ед. корпуса и 10 щитов.
+    """
     p = PirateShip(5, 5, "Raider")
     p.hull = 40
     p.max_hull = 40
@@ -63,7 +90,11 @@ def pirate():
 
 @pytest.fixture
 def trader():
-    """A trader NPC ship."""
+    """Вернуть NPC-корабль торговца с грузом.
+
+    Возвращает:
+        TraderShip: торговец "Merchant" с 60 корпуса и ресурсами.
+    """
     t = TraderShip(7, 5, "Merchant")
     t.hull = 60
     t.max_hull = 60
@@ -75,7 +106,12 @@ def trader():
 
 @pytest.fixture
 def crew_member():
-    """A crew member with basic stats."""
+    """Вернуть члена экипажа с базовыми характеристиками и снаряжением.
+
+    Возвращает:
+        CrewMember: член экипажа "Zara", пилот-человек с пистолетом
+                    и бронёй, 30 хп, 50 боевого навыка.
+    """
     cm = CrewMember("Zara", "Pilot", "human")
     cm.hp = 30
     cm.max_hp = 30
@@ -88,13 +124,22 @@ def crew_member():
 
 @pytest.fixture
 def module():
-    """Basic ship module for testing."""
+    """Вернуть базовый корабельный модуль для тестирования.
+
+    Возвращает:
+        ShipModule: модуль "laser_turret" с параметрами из конфига.
+    """
     return ShipModule("laser_turret")
 
 
 @pytest.fixture
 def cargo_hold():
-    """Cargo hold with some items."""
+    """Вернуть грузовой отсек с несколькими предметами.
+
+    Возвращает:
+        CargoHold: отсек на 100 единиц, заполненный металлом (20),
+                   электроникой (10) и едой (5).
+    """
     ch = CargoHold(100)
     ch.add("metal", 20)
     ch.add("electronics", 10)
@@ -104,7 +149,12 @@ def cargo_hold():
 
 @pytest.fixture
 def mission():
-    """A standard delivery mission."""
+    """Вернуть стандартную миссию на доставку ресурсов.
+
+    Возвращает:
+        Mission: миссия типа "deliver" — доставить 5 металла
+                 на станцию "TargetStation" за награду 200 кредитов.
+    """
     m = Mission(
         "deliver", "metal", 5, "TargetStation", 200, 30,
         title="Test Delivery", description="Deliver 5 metal.",
@@ -114,11 +164,17 @@ def mission():
 
 @pytest.fixture
 def settings_file(tmp_path):
-    """Create a temporary settings file and return its path."""
+    """Создать временный файл настроек и подменить путь в config.
+
+    Использует tmp_path для изоляции тестов от реального settings.json.
+
+    Возвращает:
+        str: путь к временному файлу настроек.
+    """
     import os
     old = os.path.join(os.getcwd(), "settings.json")
     new = str(tmp_path / "settings.json")
-    # Patch config's SETTINGS_FILE path
+    # Подменяем путь в модуле config, чтобы тесты не трогали реальный файл
     import config as cfg
     cfg.SETTINGS_FILE = new
     return new
@@ -126,9 +182,13 @@ def settings_file(tmp_path):
 
 @pytest.fixture
 def expedition_map():
-    """Pre-generated expedition map."""
+    """Вернуть предварительно сгенерированную карту экспедиции с фиксированным seed.
+
+    Возвращает:
+        ExpeditionMap: карта 20x15 с точкой назначения "station".
+    """
     from expedition import ExpeditionMap
-    random.seed(42)
+    random.seed(42)  # Детерминированная генерация карты
     emp = ExpeditionMap(20, 15, "station")
-    random.seed()
+    random.seed()  # Сбрасываем seed
     return emp

@@ -1,4 +1,17 @@
-"""Ground expedition mode — roguelike dungeon exploration."""
+"""
+expedition.py — Режим высадки на поверхность (ground expedition).
+
+Этот модуль реализует рогалик-подобный (roguelike) режим исследования
+процедурно генерируемых подземелий. Игрок управляет членом экипажа,
+перемещается по комнатам и коридорам, сражается с врагами, собирает
+трофеи и добирается до точки эвакуации.
+
+Ключевые классы:
+  - ExpeditionMap: процедурная генерация карты (комнаты + коридоры).
+  - EnemyUnit:  враг на карте высадки.
+  - ExpeditionController:  логика ходов, FOV, бой.
+  - ExpeditionScreen:  экран Textual для отображения карты и управления.
+"""
 
 import random
 import math
@@ -15,36 +28,79 @@ from config import (
 # ---------------------------------------------------------------------------
 
 class ExpeditionMap:
-    """Procedurally generated dungeon map with rooms + corridors."""
+    """Процедурно генерируемая карта подземелья с комнатами и коридорами."""
 
     def __init__(self, width=30, height=20, site_type="station"):
-        self.w = width
-        self.h = height
-        self.site_type = site_type
+        """
+        Инициализация карты.
+
+        Аргументы:
+            width (int): ширина карты в тайлах.
+            height (int): высота карты в тайлах.
+            site_type (str): тип локации ("station", "research", "asteroid",
+                             "wreckage", "planet").
+        """
+        self.w = width                                 # ширина карты
+        self.h = height                                # высота карты
+        self.site_type = site_type                     # тип локации
         # Tile grid: list[list[str]] of tile ids
-        self.grid = [["wall"] * width for _ in range(height)]
+        self.grid = [["wall"] * width for _ in range(height)]  # сетка тайлов
         # Object layers
-        self.crates = {}       # (x,y) -> item_id or "resource"
-        self.terminals = set()
-        self.enemies = []      # list of EnemyUnit
-        self.exit_pos = None   # (x,y)
-        self.player_start = None  # (x,y)
-        self.rooms = []        # (x1,y1,x2,y2)
+        self.crates = {}       # ящики: (x,y) -> item_id или "resource"
+        self.terminals = set()                         # терминалы
+        self.enemies = []      # список врагов (EnemyUnit)
+        self.exit_pos = None                           # координаты выхода
+        self.player_start = None                       # стартовая позиция игрока
+        self.rooms = []        # комнаты: (x1, y1, x2, y2)
         self._generate()
 
     def in_bounds(self, x, y):
+        """Проверяет, находятся ли координаты в пределах карты.
+
+        Аргументы:
+            x (int): координата X.
+            y (int): координата Y.
+
+        Возвращает:
+            bool: True, если (x, y) внутри границ карты.
+        """
         return 0 <= x < self.w and 0 <= y < self.h
 
     def get_tile(self, x, y):
+        """Возвращает идентификатор тайла по координатам.
+
+        Аргументы:
+            x (int): координата X.
+            y (int): координата Y.
+
+        Возвращает:
+            str: идентификатор тайла или "void" за пределами карты.
+        """
         if not self.in_bounds(x, y):
             return "void"
         return self.grid[y][x]
 
     def set_tile(self, x, y, tile_id):
+        """Устанавливает тайл по координатам.
+
+        Аргументы:
+            x (int): координата X.
+            y (int): координата Y.
+            tile_id (str): идентификатор тайла.
+        """
         if self.in_bounds(x, y):
             self.grid[y][x] = tile_id
 
     def is_passable(self, x, y):
+        """Проверяет, можно ли пройти через тайл.
+
+        Аргументы:
+            x (int): координата X.
+            y (int): координата Y.
+
+        Возвращает:
+            bool: True, если тайл проходим.
+        """
         t = self.get_tile(x, y)
         info = GROUND_TILES.get(t, {})
         return info.get("passable", False)
@@ -52,6 +108,14 @@ class ExpeditionMap:
     # ── Generation helpers ─────────────────────────────────────────────
 
     def _carve_room(self, x1, y1, x2, y2):
+        """Вырезает прямоугольную комнату, заполняя её полом.
+
+        Аргументы:
+            x1 (int): левая граница комнаты.
+            y1 (int): верхняя граница комнаты.
+            x2 (int): правая граница комнаты.
+            y2 (int): нижняя граница комнаты.
+        """
         for y in range(y1, y2 + 1):
             for x in range(x1, x2 + 1):
                 if self.in_bounds(x, y):
@@ -59,16 +123,31 @@ class ExpeditionMap:
         self.rooms.append((x1, y1, x2, y2))
 
     def _carve_corridor_h(self, x1, x2, y):
+        """Вырезает горизонтальный коридор.
+
+        Аргументы:
+            x1 (int): начальная координата X.
+            x2 (int): конечная координата X.
+            y (int): координата Y коридора.
+        """
         for x in range(min(x1, x2), max(x1, x2) + 1):
             if self.in_bounds(x, y):
                 self.grid[y][x] = "floor"
 
     def _carve_corridor_v(self, y1, y2, x):
+        """Вырезает вертикальный коридор.
+
+        Аргументы:
+            y1 (int): начальная координата Y.
+            y2 (int): конечная координата Y.
+            x (int): координата X коридора.
+        """
         for y in range(min(y1, y2), max(y1, y2) + 1):
             if self.in_bounds(x, y):
                 self.grid[y][x] = "floor"
 
     def _generate(self):
+        """Генерирует карту: комнаты, коридоры, двери, объекты и врагов."""
         num_rooms = random.randint(4, 7)
         min_room = 3
         max_room = 7
@@ -166,7 +245,15 @@ class ExpeditionMap:
                 self.enemies.append(EnemyUnit(rx, ry, etype, cfg))
 
     def _rand_room_floor(self, offset=0):
-        """Return a random floor tile in a room (excluding first `offset` rooms)."""
+        """Возвращает случайную клетку пола в комнате (исключая первые `offset` комнат).
+
+        Аргументы:
+            offset (int): сколько первых комнат пропустить.
+
+        Возвращает:
+            tuple[int, int] | tuple[None, None]: координаты случайной клетки
+            пола или (None, None), если подходящих клеток нет.
+        """
         candidates = []
         for i in range(offset, len(self.rooms)):
             x1, y1, x2, y2 = self.rooms[i]
@@ -180,24 +267,38 @@ class ExpeditionMap:
 
 
 class EnemyUnit:
-    """Ground-combat enemy."""
+    """Противник на карте высадки. Содержит характеристики и состояние."""
 
     def __init__(self, x, y, etype, cfg):
-        self.x = x
-        self.y = y
-        self.etype = etype
-        self.name = cfg.get("name", "Enemy")
-        self.hp = cfg.get("hp", 20)
-        self.max_hp = cfg.get("max_hp", 20)
-        self.dmg = cfg.get("dmg", 5)
-        self.accuracy = cfg.get("accuracy", 50)
-        self.evasion = cfg.get("evasion", 5)
-        self.ap = cfg.get("ap", 4)
-        self.max_ap = cfg.get("ap", 4)
-        self.alive = True
-        self.seen = False  # seen by player (for FOV)
+        """
+        Инициализация врага.
+
+        Аргументы:
+            x (int): координата X на карте.
+            y (int): координата Y на карте.
+            etype (str): тип врага (bandit, drone, mutant, turret).
+            cfg (dict): конфигурация врага из GROUND_ENEMIES.
+        """
+        self.x = x                                    # позиция X
+        self.y = y                                    # позиция Y
+        self.etype = etype                            # тип врага
+        self.name = cfg.get("name", "Enemy")          # имя врага
+        self.hp = cfg.get("hp", 20)                   # текущее здоровье
+        self.max_hp = cfg.get("max_hp", 20)           # максимальное здоровье
+        self.dmg = cfg.get("dmg", 5)                  # урон в ближнем бою
+        self.accuracy = cfg.get("accuracy", 50)       # точность атаки (%)
+        self.evasion = cfg.get("evasion", 5)          # уклонение (%)
+        self.ap = cfg.get("ap", 4)                    # текущие очки действий
+        self.max_ap = cfg.get("ap", 4)                # максимальные очки действий
+        self.alive = True                             # жив ли враг
+        self.seen = False  # seen by player (for FOV) # замечен ли игроком
 
     def take_damage(self, dmg):
+        """Наносит урон врагу. Если HP <= 0, помечает как убитого.
+
+        Аргументы:
+            dmg (int): количество наносимого урона.
+        """
         self.hp -= dmg
         if self.hp <= 0:
             self.hp = 0
@@ -209,25 +310,42 @@ class EnemyUnit:
 # ---------------------------------------------------------------------------
 
 class ExpeditionController:
-    """Manages player movement, AP, FOV, combat on the ground map."""
+    """Управляет перемещением игрока, очками действий (AP), обзором (FOV)
+    и боем на карте высадки."""
 
     def __init__(self, crew_member, expedition_map, mission=None):
-        self.crew = crew_member
-        self.map = expedition_map
-        self.mission = mission
-        self.px, self.py = expedition_map.player_start
-        self.turn = 0
-        self.log = ["Expedition begins."]
-        self.victory = False
-        self.game_over = False
-        self.over = False
+        """
+        Инициализация контроллера высадки.
+
+        Аргументы:
+            crew_member: объект члена экипажа (с атрибутами hp, ap, weapon, armor...).
+            expedition_map (ExpeditionMap): карта высадки.
+            mission (dict | None): данные миссии (необязательно).
+        """
+        self.crew = crew_member                       # член экипажа
+        self.map = expedition_map                     # карта высадки
+        self.mission = mission                        # данные миссии
+        self.px, self.py = expedition_map.player_start  # позиция игрока на карте
+        self.turn = 0                                 # номер текущего хода
+        self.log = ["Expedition begins."]             # журнал событий
+        self.victory = False                          # флаг победы (достиг выхода)
+        self.game_over = False                        # флаг поражения (смерть)
+        self.over = False                             # завершена ли экспедиция
         self._reset_ap()
 
     def _reset_ap(self):
+        """Восстанавливает очки действий (AP) экипажа до максимума."""
         self.crew.ap = self.crew.max_ap
 
     def _visible_tiles(self):
-        """Return set of (x,y) visible from player position."""
+        """Вычисляет множество тайлов, видимых с позиции игрока (FOV).
+
+        Использует радиус обзора EXPEDITION_FOV_RADIUS и проверку
+        линии видимости (line of sight).
+
+        Возвращает:
+            set[tuple[int, int]]: множество координат видимых тайлов.
+        """
         visible = set()
         px, py = self.px, self.py
         r = EXPEDITION_FOV_RADIUS
@@ -245,7 +363,15 @@ class ExpeditionController:
         return visible
 
     def _has_los(self, x1, y1, x2, y2):
-        """Bresenham-based line of sight."""
+        """Проверяет линию видимости между двумя точками (алгоритм Брезенхема).
+
+        Аргументы:
+            x1, y1 (int): координаты начальной точки (игрок).
+            x2, y2 (int): координаты конечной точки.
+
+        Возвращает:
+            bool: True, если между точками есть прямая видимость.
+        """
         dx = abs(x2 - x1)
         dy = abs(y2 - y1)
         sx = 1 if x1 < x2 else -1
@@ -271,19 +397,43 @@ class ExpeditionController:
                 err += dx; cy += sy
 
     def get_player_weapon_stats(self):
+        """Возвращает характеристики текущего оружия игрока.
+
+        Возвращает:
+            dict: словарь характеристик оружия из GROUND_WEAPONS.
+        """
         w_id = self.crew.weapon
         return GROUND_WEAPONS.get(w_id, GROUND_WEAPONS["pistol"])
 
     def get_player_defense(self):
+        """Возвращает значение защиты игрока от брони.
+
+        Возвращает:
+            int: значение защиты.
+        """
         a_id = self.crew.armor
         return GROUND_ARMOR.get(a_id, GROUND_ARMOR["none"]).get("defense", 0)
 
     def can_act(self):
+        """Проверяет, может ли игрок совершить действие.
+
+        Возвращает:
+            bool: True, если экспедиция не завершена и есть AP.
+        """
         return not self.over and self.crew.ap > 0
 
     # ── Actions ────────────────────────────────────────────────────────
 
     def move(self, dx, dy):
+        """Перемещает игрока на указанный вектор.
+
+        Обрабатывает преграды, двери, опасности (lava/spikes),
+        взаимодействие с ящиками и терминалами, проверку выхода.
+
+        Аргументы:
+            dx (int): смещение по X (-1, 0, 1).
+            dy (int): смещение по Y (-1, 0, 1).
+        """
         if self.over:
             return
         nx, ny = self.px + dx, self.py + dy
@@ -337,6 +487,11 @@ class ExpeditionController:
             self.add_log("Terminal activated! (placeholder)")
 
     def attack(self):
+        """Атакует ближайшего врага в пределах дальности оружия.
+
+        Тратит AP, производит бросок на попадание, наносит урон.
+        При уничтожении врага с шансом 40% выпадает лут.
+        """
         if self.over:
             return
         wpn = self.get_player_weapon_stats()
@@ -388,12 +543,19 @@ class ExpeditionController:
             self.add_log("★ All enemies eliminated!")
 
     def wait(self):
+        """Пропускает ход игрока (обнуляет AP)."""
         if self.over:
             return
         self.crew.ap = 0
         self.add_log("Waited.")
 
     def heal(self, item=None):
+        """Использует аптечку для восстановления HP.
+
+        Аргументы:
+            item (str | None): идентификатор предмета для лечения
+                               (по умолчанию "repair_kit").
+        """
         if not item:
             item = "repair_kit"
         qty = self.crew.inventory.get(item, 0)
@@ -412,7 +574,12 @@ class ExpeditionController:
     # ── Enemy turn ──────────────────────────────────────────────────────
 
     def end_player_turn(self):
-        """Run enemy AI after player ends turn."""
+        """Завершает ход игрока и запускает ИИ врагов.
+
+        Враги перемещаются к игроку, если видят его, и атакуют в упор.
+        Проверяет смерть игрока после всех действий врагов.
+        Увеличивает счётчик ходов и восстанавливает AP.
+        """
         if self.over:
             return
         for e in self.map.enemies:
@@ -454,11 +621,26 @@ class ExpeditionController:
         self._reset_ap()
 
     def add_log(self, msg):
+        """Добавляет сообщение в журнал экспедиции.
+
+        Журнал хранит не более 30 последних записей.
+
+        Аргументы:
+            msg (str): текст сообщения.
+        """
         self.log.append(msg)
         if len(self.log) > 30:
             self.log = self.log[-30:]
 
     def _enemy_visible(self, enemy):
+        """Проверяет, видит ли игрок данного врага (есть ли LOS).
+
+        Аргументы:
+            enemy (EnemyUnit): проверяемый враг.
+
+        Возвращает:
+            bool: True, если враг в пределах прямой видимости.
+        """
         return self._has_los(self.px, self.py, enemy.x, enemy.y)
 
 
@@ -467,23 +649,41 @@ class ExpeditionController:
 # ═══════════════════════════════════════════════════════════════════════
 
 class ExpeditionScreen(Screen):
-    """Roguelike ground expedition screen."""
+    """Экран Textual для отображения карты высадки, интерфейса и управления."""
 
     def __init__(self, controller: ExpeditionController):
+        """
+        Инициализация экрана экспедиции.
+
+        Аргументы:
+            controller (ExpeditionController): контроллер высадки.
+        """
         super().__init__()
-        self.ctrl = controller
-        self._known = set()  # explored tiles
+        self.ctrl = controller                        # контроллер высадки
+        self._known = set()                           # исследованные (ранее виденные) тайлы
 
     def compose(self):
+        """Создаёт виджеты экрана.
+
+        Возвращает:
+            Generator[Static]: единственный Static-виджет для отрисовки.
+        """
         yield Static(id="expedition-content")
 
     def on_mount(self):
+        """Вызывается при монтировании экрана. Обновляет отображение."""
         self._update()
 
     def _update(self):
+        """Обновляет содержимое Static-виджета текущей отрисовкой карты."""
         self.query_one("#expedition-content").update(self._render())
 
     def _render(self):
+        """Отрисовывает карту, статус-панель, журнал и подсказки.
+
+        Возвращает:
+            str: готовая текстовая строка для отображения.
+        """
         ctrl = self.ctrl
         mp = ctrl.map
         lines = []
@@ -566,12 +766,29 @@ class ExpeditionScreen(Screen):
         return "\n".join(lines)
 
     def _enemy_at(self, x, y):
+        """Возвращает врага на указанных координатах, если он есть.
+
+        Аргументы:
+            x (int): координата X.
+            y (int): координата Y.
+
+        Возвращает:
+            EnemyUnit | None: враг на клетке или None.
+        """
         for e in self.ctrl.map.enemies:
             if e.alive and e.x == x and e.y == y:
                 return e
         return None
 
     def on_key(self, event):
+        """Обрабатывает нажатия клавиш для управления экспедицией.
+
+        Поддерживает: перемещение (стрелки/WASD), атаку (A),
+        лечение (U), открытие дверей (O), выход (Q).
+
+        Аргументы:
+            event: событие нажатия клавиши.
+        """
         ctrl = self.ctrl
         if ctrl.over:
             self._apply_outcome()
@@ -629,6 +846,12 @@ class ExpeditionScreen(Screen):
             self._update()
 
     def _apply_outcome(self):
+        """Применяет результаты экспедиции к глобальному состоянию.
+
+        При смерти — удаляет члена экипажа из ростера.
+        При возвращении — переносит инвентарь в грузовой отсек корабля
+        и восстанавливает HP.
+        """
         ctrl = self.ctrl
         app = self.app
         crew = ctrl.crew

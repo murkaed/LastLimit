@@ -1,4 +1,21 @@
-"""UI screens: command, cargo, trade, bridge, engineering, tactical, crew."""
+"""
+ui.py — Все экраны интерфейса игры LastLimit.
+
+Содержит классы экранов (Screen) для Textual-приложения:
+  - ShipHubScreen, BridgeScreen, CommandScreen — навигация и управление
+  - EngineeringScreen — распределение энергии и модули отсеков
+  - TacticalScreen — оружие, цели и бой
+  - CargoScreen, TradeScreen — инвентарь и торговля на станции
+  - CrewScreen, HireScreen — экипаж и найм в таверне
+  - MissionsScreen, MissionScreen, MissionListScreen — активные и доступные миссии
+  - StationServicesScreen — меню услуг станции
+  - ModuleShopScreen, ShipyardScreen — магазины модулей и корпусов
+  - CraftingScreen — крафт предметов в мастерской
+  - LandingPrepScreen — подготовка к высадке на поверхность
+  - ScanScreen — активное сканирование объектов в радиусе сенсоров
+  - ActionMenu — контекстное меню, вызываемое клавишей E
+  - SettingsScreen — настройки языка, автсохранения и клавиш
+"""
 
 from textual.screen import Screen
 from textual.widgets import Static, Input, DataTable, Footer
@@ -20,12 +37,14 @@ def _box(title, lines, width=54):
 # ═══════════════════════════════════════════════════════════════════════
 
 class ShipHubScreen(Screen):
-    """Unified ship management hub — press 1-5 or Esc."""
+    """Экран быстрой навигации по отсекам корабля (F1). Показывает сводку состояния корпуса, щитов, энергии, груза, экипажа."""
 
     def compose(self):
+        """Создаёт виджет для отображения информации о корабле."""
         yield Static(id="hub-content")
 
     def on_mount(self):
+        """Собирает и отображает сводку по кораблю: корпус, щиты, энергия, груз, экипаж."""
         app = self.app
         if not hasattr(app, "ship"):
             return
@@ -70,6 +89,7 @@ class ShipHubScreen(Screen):
         self.query_one("#hub-content").update("\n".join(lines))
 
     def on_key(self, event):
+        """Обрабатывает нажатия клавиш: 1-5 для перехода к экранам, Escape для возврата."""
         if event.key == "escape":
             event.stop(); self.dismiss()
         elif event.key == "1":
@@ -99,10 +119,14 @@ class ShipHubScreen(Screen):
 # ═══════════════════════════════════════════════════════════════════════
 
 class CommandScreen(Screen):
+    """Экран командной консоли. Принимает текстовую команду и передаёт ее в app.process_command()."""
+
     def compose(self):
+        """Создаёт поле ввода текстовой команды."""
         yield Input(placeholder="Enter command (help for list)...", id="cmd-input")
 
     def on_input_submitted(self, event):
+        """Передаёт введённую команду в app.process_command() и закрывает экран."""
         app = self.app
         if hasattr(app, "process_command"):
             app.process_command(event.value)
@@ -118,12 +142,16 @@ CATEGORY_ORDER = {"raw": 0, "refined": 1, "advanced": 2, "special": 3, "module":
 
 
 class CargoScreen(Screen):
+    """Экран грузового отсека. Отображает содержимое трюма, фильтры по категориям, позволяет использовать или выбрасывать предметы."""
+
     def __init__(self):
+        """Инициализирует экран: фильтр «все» и индекс выбранного элемента."""
         super().__init__()
-        self._filter = "all"
-        self._selected = 0
+        self._filter = "all"  # текущий фильтр категории: all/raw/refined/advanced/special/module
+        self._selected = 0  # индекс выбранной строки в списке
 
     def compose(self):
+        """Создаёт виджеты заголовка, фильтров, таблицы, подвала и поля поиска."""
         yield Static(id="cargo-header")
         yield Static(id="cargo-filters")
         yield Static(id="cargo-table")
@@ -131,16 +159,19 @@ class CargoScreen(Screen):
         yield Input(placeholder="search: type item name  |  close", id="cargo-input")
 
     def on_mount(self):
+        """При монтировании обновляет отображение груза."""
         self._refresh()
 
     # -- helpers --
     def _item_cat(self, rid):
+        """Возвращает категорию ресурса (raw/refined/advanced/special/module)."""
         info = RESOURCES.get(rid, {})
         if info: return info.get("cat", "unknown")
         if rid in SHIP_MODULES: return "module"
         return "unknown"
 
     def _item_name(self, rid):
+        """Возвращает отображаемое имя предмета по его идентификатору."""
         info = RESOURCES.get(rid, {})
         if info: return info.get("name", rid)
         info = SHIP_MODULES.get(rid, {})
@@ -148,6 +179,7 @@ class CargoScreen(Screen):
         return rid
 
     def _item_price(self, rid):
+        """Возвращает базовую цену предмета (из ресурсов или модулей)."""
         info = RESOURCES.get(rid, {})
         if info: return info.get("base_price", 0)
         info = SHIP_MODULES.get(rid, {})
@@ -155,17 +187,20 @@ class CargoScreen(Screen):
         return 0
 
     def _item_icon(self, rid):
+        """Возвращает иконку для отображения категории предмета."""
         info = RESOURCES.get(rid, {})
         if info:
             return {"raw":"⛏","refined":"■","advanced":"◆","special":"★","consumable":"⚡"}.get(info.get("cat",""), "·")
         return "◈"
 
     def _filtered(self):
+        """Возвращает отфильтрованный список предметов в трюме."""
         items = list(self.app.ship.cargo.items.items())
         if self._filter == "all": return items
         return [(r,a) for r,a in items if self._item_cat(r) == self._filter]
 
     def _at_station(self):
+        """Проверяет, пристыкован ли игрок к станции, и возвращает её."""
         app = self.app
         return app.galaxy.get_station_at(app.player_x, app.player_y)
 
@@ -227,6 +262,7 @@ class CargoScreen(Screen):
 
     # -- actions --
     def _use_item(self):
+        """Использует выбранный предмет: устанавливает модуль из груза или активирует расходник."""
         items = self._filtered()
         if not items or self._selected >= len(items): return
         rid,_ = items[self._selected]
@@ -243,6 +279,7 @@ class CargoScreen(Screen):
         self._refresh()
 
     def _jettison(self):
+        """Выбрасывает 1 единицу выбранного предмета за борт."""
         items = self._filtered()
         if not items or self._selected >= len(items): return
         rid,amt = items[self._selected]
@@ -253,6 +290,7 @@ class CargoScreen(Screen):
         self._refresh()
 
     def _sell_junk(self):
+        """Продаёт всё сырьё (junk) станции, если игрок пристыкован."""
         st = self._at_station()
         if not st: self.app.logger.system("Not docked at a station."); return
         msg,_ = st.buy_all_junk(self.app.ship)
@@ -261,6 +299,7 @@ class CargoScreen(Screen):
 
     # -- keys --
     def on_key(self, event):
+        """Обрабатывает клавиши: Escape, стрелки, Enter, Delete, S, 1-6."""
         if event.key == "escape":
             event.stop(); self.dismiss(); return
         items = self._filtered()
@@ -280,6 +319,7 @@ class CargoScreen(Screen):
             if idx < len(fkeys): self._filter = fkeys[idx]; self._selected = 0; self._refresh()
 
     def on_input_submitted(self, event):
+        """Обрабатывает текстовый ввод (close/exit/quit для выхода, иначе заглушка поиска)."""
         v = event.value.strip().lower()
         if v in ("close","exit","quit"): event.stop(); self.dismiss(); return
         # Simple search: filter by keyword
@@ -293,16 +333,21 @@ class CargoScreen(Screen):
 # ═══════════════════════════════════════════════════════════════════════
 
 class TradeScreen(Screen):
+    """Экран торговли на станции. Показывает цены покупки/продажи ресурсов и содержимое трюма."""
+
     def __init__(self, station):
+        """Сохраняет ссылку на станцию для торговли."""
         super().__init__()
-        self.station = station
+        self.station = station  # объект станции, с которой ведётся торговля
 
     def compose(self):
+        """Создаёт виджеты заголовка, таблицы цен и поля ввода команд."""
         yield Static(id="trade-header")
         yield Static(id="trade-prices")
         yield Input(placeholder="buy <res> <amt>  |  sell <res> <amt>  |  close", id="trade-input")
 
     def on_mount(self):
+        """Формирует и отображает таблицу цен на ресурсы и текущий груз игрока."""
         app = self.app
         if not hasattr(app, "ship"):
             return
@@ -336,10 +381,12 @@ class TradeScreen(Screen):
         self.query_one("#trade-prices").update("\n".join(lines))
 
     def on_key(self, event):
+        """Закрывает экран по Escape или Q."""
         if event.key in ("escape", "q"):
             event.stop(); self.dismiss()
 
     def on_input_submitted(self, event):
+        """Обрабатывает команды buy/sell, добавляя префикс 'trade', иначе передаёт app.process_command()."""
         app = self.app
         if not hasattr(app, "process_command"):
             return
@@ -364,6 +411,7 @@ def _bar(pct, width=10):
 
 
 class BridgeScreen(Screen):
+    """Главный экран мостика (F1). Показывает состояние корабля и меню перехода к отсекам и функциям."""
     MENU_ITEMS = [
         ("1", "Engineering", "Power distribution & module management"),
         ("2", "Tactical", "Weapons & combat targets"),
@@ -374,11 +422,13 @@ class BridgeScreen(Screen):
     ]
 
     def compose(self):
+        """Создаёт виджеты верхней панели, меню и подвала."""
         yield Static(id="bridge-top")
         yield Static(id="bridge-menu")
         yield Static(id="bridge-footer")
 
     def on_mount(self):
+        """При монтировании обновляет отображение мостика."""
         self._refresh()
 
     def _at_station(self):
@@ -389,6 +439,7 @@ class BridgeScreen(Screen):
         return app.galaxy.get_station_at(app.player_x, app.player_y)
 
     def _refresh(self):
+        """Обновляет панель состояния корабля (корпус, щиты, энергия, скорость, экипаж) и меню команд."""
         app = self.app
         if not hasattr(app, "ship") or not hasattr(app, "galaxy"):
             self.query_one("#bridge-top").update("No ship data.")
@@ -433,6 +484,7 @@ class BridgeScreen(Screen):
         self.query_one("#bridge-footer").update("")
 
     def on_key(self, event):
+        """Обрабатывает клавиши: 1-7 для перехода к экранам, Escape для возврата на карту."""
         if event.key == "escape":
             event.stop(); self.dismiss()
             # Refresh game info panel on return
@@ -473,16 +525,19 @@ class BridgeScreen(Screen):
 # ═══════════════════════════════════════════════════════════════════════
 
 class MissionListScreen(Screen):
-    """Legacy alias — kept for compatibility. Use MissionsScreen from bridge."""
+    """Устаревший экран списка миссий — сохранён для совместимости. Используйте MissionsScreen."""
 
     def __init__(self, station=None):
+        """Сохраняет ссылку на станцию (для обратной совместимости)."""
         super().__init__()
-        self.station = station
+        self.station = station  # станция, с которой получены миссии
 
     def compose(self):
+        """Создаёт виджет для отображения списка миссий."""
         yield Static(id="mlist-content")
 
     def on_mount(self):
+        """Формирует и отображает список активных миссий."""
         app = self.app
         if not hasattr(app, "ship"):
             return
@@ -503,6 +558,7 @@ class MissionListScreen(Screen):
         self.query_one("#mlist-content").update("\n".join(lines))
 
     def on_key(self, event):
+        """Закрывает экран по Escape."""
         if event.key == "escape":
             event.stop(); self.dismiss()
 
@@ -512,23 +568,30 @@ class MissionListScreen(Screen):
 # ═══════════════════════════════════════════════════════════════════════
 
 class MissionsScreen(Screen):
+    """Экран журнала миссий. Показывает активные и доступные миссии с возможностью принятия, отслеживания и детального просмотра."""
+
     def __init__(self):
+        """Инициализирует экран: вкладка «активные» и индекс выбранной миссии."""
         super().__init__()
-        self._tab = "active"  # active | available
-        self._selected = 0
+        self._tab = "active"  # активные/доступные: "active" | "available"
+        self._selected = 0  # индекс выбранной строки в списке
 
     def compose(self):
+        """Создаёт виджеты содержимого миссий и поля ввода команд."""
         yield Static(id="msn-content")
         yield Input(placeholder="accept <num> | abandon <num> | track <num> | detail <num>  | close", id="msn-input")
 
     def on_mount(self):
+        """При монтировании обновляет список миссий."""
         self._refresh()
 
     def _at_station(self):
+        """Проверяет, пристыкован ли игрок к станции."""
         app = self.app
         return app.galaxy.get_station_at(app.player_x, app.player_y)
 
     def _refresh(self):
+        """Формирует и отображает таблицу активных или доступных миссий с репутацией и выбором вкладки."""
         app = self.app
         if not hasattr(app, "ship"):
             return
@@ -599,6 +662,7 @@ class MissionsScreen(Screen):
         return lst[self._selected], lst
 
     def on_key(self, event):
+        """Обрабатывает клавиши: 1-2 для вкладок, Enter/стрелки, A-отмена, D-детали, Escape-выход."""
         if event.key == "escape":
             event.stop(); self.dismiss(); return
         app = self.app; s = app.ship
@@ -645,6 +709,7 @@ class MissionsScreen(Screen):
                 app.logger.system(f"  Status: {m.status}  TTL: {m.ticks}t  Reward: {m.reward}cr")
 
     def on_input_submitted(self, event):
+        """Обрабатывает текстовые команды: accept, abandon, track, detail, close."""
         app = self.app; s = app.ship
         v = event.value.strip().lower()
         if v in ("close", "exit", "quit"):
@@ -698,15 +763,20 @@ class MissionsScreen(Screen):
 # ═══════════════════════════════════════════════════════════════════════
 
 class StationServicesScreen(Screen):
+    """Экран услуг станции. Показывает меню доступных действий: торговля, модули, верфь, мастерская, найм, миссии."""
+
     def __init__(self, station=None):
+        """Сохраняет ссылку на станцию."""
         super().__init__()
-        self.station = station
+        self.station = station  # объект станции
 
     def compose(self):
+        """Создаёт виджеты содержимого и подвала."""
         yield Static(id="svc-content")
         yield Static(id="svc-footer")
 
     def on_mount(self):
+        """Формирует меню услуг в зависимости от типа станции."""
         app = self.app
         st = self.station
         if not st:
@@ -735,6 +805,7 @@ class StationServicesScreen(Screen):
         self.query_one("#svc-footer").update("")
 
     def on_key(self, event):
+        """Обрабатывает клавиши: 1-6 для выбора услуги, Escape для возврата."""
         st = self.station
         app = self.app
         if event.key == "escape":
@@ -759,18 +830,24 @@ class StationServicesScreen(Screen):
 # ═══════════════════════════════════════════════════════════════════════
 
 class EngineeringScreen(Screen):
+    """Экран инженерного отсека. Показывает распределение энергии по отсекам, состояние и уровень модулей."""
+
     def __init__(self):
+        """Инициализирует экран: выбранный отсек — None (не выбран)."""
         super().__init__()
-        self._selected_comp = None
+        self._selected_comp = None  # идентификатор выбранного отсека (например, "weapon")
 
     def compose(self):
+        """Создаёт виджет содержимого и поле ввода команд."""
         yield Static(id="eng-content")
         yield Input(placeholder="power <comp> <0-10>  |  repair <comp>  |  upgrade <num>  |  close", id="eng-input")
 
     def on_mount(self):
+        """При монтировании обновляет инженерную панель."""
         self._refresh()
 
     def _refresh(self):
+        """Формирует и отображает таблицу отсеков с энергией, модулями и их прочностью."""
         app = self.app
         if not hasattr(app, "ship"):
             return
@@ -822,6 +899,7 @@ class EngineeringScreen(Screen):
         self.query_one("#eng-content").update("\n".join(lines))
 
     def on_key(self, event):
+        """Обрабатывает клавиши: 1-7 для выбора отсека, 0-9 для установки энергии, Escape для выхода."""
         if event.key == "escape":
             event.stop(); self.dismiss(); return
 
@@ -839,6 +917,7 @@ class EngineeringScreen(Screen):
             return
 
     def on_input_submitted(self, event):
+        """Обрабатывает текстовые команды: power, repair, upgrade, close."""
         app = self.app
         if not hasattr(app, "process_command"):
             return
@@ -854,25 +933,30 @@ class EngineeringScreen(Screen):
 # ═══════════════════════════════════════════════════════════════════════
 
 class TacticalScreen(Screen):
-    """Weapon systems and target management screen."""
+    """Экран тактического отсека. Показывает оружие, цели в радиусе сенсоров, позволяет инициировать бой."""
 
     def __init__(self):
+        """Инициализирует экран: активная панель «оружие», индексы выбранного оружия и цели."""
         super().__init__()
-        self._active_panel = "weapons"  # "weapons" | "targets"
-        self._sel_weapon = 0
-        self._sel_target = 0
+        self._active_panel = "weapons"  # активная панель: "weapons" | "targets"
+        self._sel_weapon = 0  # индекс выбранного оружия
+        self._sel_target = 0  # индекс выбранной цели
 
     def compose(self):
+        """Создаёт виджет тактического содержимого."""
         yield Static(id="tac-content")
 
     def on_mount(self):
+        """При монтировании обновляет тактическую панель."""
         self._refresh()
 
     def _get_weapons(self):
+        """Возвращает список активных и не сломанных модулей оружия."""
         return [m for m in self.app.ship.compartments["weapon"]["modules"]
                 if m.active and not m.is_broken()]
 
     def _get_targets(self):
+        """Возвращает список целей (пираты и торговцы) в радиусе сенсоров, отсортированных по дистанции."""
         app = self.app
         g = app.galaxy
         rng = app.ship.get_effective_stats().get("sensor_range", 7)
@@ -894,6 +978,7 @@ class TacticalScreen(Screen):
         return targets
 
     def _refresh(self):
+        """Формирует и отображает панели оружия и целей с состоянием корпуса и щитов."""
         app = self.app
         if not hasattr(app, "ship"):
             return
@@ -989,6 +1074,7 @@ class TacticalScreen(Screen):
         self.query_one("#tac-content").update("\n".join(lines))
 
     def on_key(self, event):
+        """Обрабатывает клавиши: стрелки для навигации, Tab для переключения панели, Enter/F для атаки, Escape для выхода."""
         if event.key == "escape":
             event.stop(); self.dismiss(); return
 
@@ -1029,7 +1115,7 @@ class TacticalScreen(Screen):
                     self._start_battle(tgt)
 
     def _start_battle(self, target_npc):
-        """Push BattleScreen for the given target."""
+        """Запускает экран боя (BattleScreen) для указанной цели."""
         app = self.app
         from battle import BattleController, BattleScreen
         bc = BattleController(app.ship, target_npc, app, selected_weapon_idx=self._sel_weapon)
@@ -1042,15 +1128,20 @@ class TacticalScreen(Screen):
 # ═══════════════════════════════════════════════════════════════════════
 
 class ModuleShopScreen(Screen):
+    """Экран магазина модулей на станции. Показывает доступные для покупки и уже установленные модули."""
+
     def __init__(self, station):
+        """Сохраняет ссылку на станцию."""
         super().__init__()
-        self.station = station
+        self.station = station  # объект станции
 
     def compose(self):
+        """Создаёт виджет содержимого и поле ввода команд."""
         yield Static(id="shop-content")
         yield Input(placeholder="buy <num>  |  close", id="shop-input")
 
     def on_mount(self):
+        """Формирует список доступных и установленных модулей."""
         app = self.app
         st = self.station
         s = app.ship
@@ -1084,10 +1175,12 @@ class ModuleShopScreen(Screen):
         self.query_one("#shop-content").update("\n".join(lines))
 
     def on_key(self, event):
+        """Закрывает экран по Escape или Q."""
         if event.key in ("escape", "q"):
             event.stop(); self.dismiss()
 
     def on_input_submitted(self, event):
+        """Обрабатывает команду buy <num> или передаёт ввод в process_command()."""
         app = self.app
         st = self.station
         s = app.ship
@@ -1124,15 +1217,20 @@ class ModuleShopScreen(Screen):
 # ═══════════════════════════════════════════════════════════════════════
 
 class MissionScreen(Screen):
+    """Экран списка миссий на станции. Показывает доступные контракты и уже взятые миссии."""
+
     def __init__(self, station):
+        """Сохраняет ссылку на станцию."""
         super().__init__()
-        self.station = station
+        self.station = station  # объект станции
 
     def compose(self):
+        """Создаёт виджет содержимого и поле ввода."""
         yield Static(id="missions-content")
         yield Input(placeholder="accept <num>  |  close", id="missions-input")
 
     def on_mount(self):
+        """Формирует список доступных и активных миссий."""
         app = self.app
         st = self.station
         s = app.ship
@@ -1166,10 +1264,12 @@ class MissionScreen(Screen):
         self.query_one("#missions-content").update("\n".join(lines))
 
     def on_key(self, event):
+        """Закрывает экран по Escape или Q."""
         if event.key in ("escape", "q"):
             event.stop(); self.dismiss()
 
     def on_input_submitted(self, event):
+        """Обрабатывает команду accept <num> или передаёт ввод в process_command()."""
         app = self.app
         st = self.station
         s = app.ship
@@ -1203,11 +1303,15 @@ class MissionScreen(Screen):
 # ═══════════════════════════════════════════════════════════════════════
 
 class CrewScreen(Screen):
+    """Экран экипажа. Показывает назначенные посты и информацию о бонусах специальностей."""
+
     def compose(self):
+        """Создаёт виджеты содержимого и поля ввода команд."""
         yield Static(id="crew-content")
         yield Input(placeholder="assign <name> <post>  |  close", id="crew-input")
 
     def on_mount(self):
+        """Формирует список постов экипажа и описание бонусов."""
         app = self.app
         if not hasattr(app, "ship"):
             return
@@ -1233,6 +1337,7 @@ class CrewScreen(Screen):
         self.query_one("#crew-content").update("\n".join(lines))
 
     def on_key(self, event):
+        """Обрабатывает Escape для выхода, F1 для перехода на мостик."""
         if event.key == "escape":
             event.stop(); self.dismiss()
         elif event.key in ("f1", "F1"):
@@ -1241,6 +1346,7 @@ class CrewScreen(Screen):
                 self.app.push_screen(BridgeScreen())
 
     def on_input_submitted(self, event):
+        """Обрабатывает assign <name> <post> или close."""
         app = self.app
         if not hasattr(app, "process_command"):
             return
@@ -1256,12 +1362,17 @@ class CrewScreen(Screen):
 # ═══════════════════════════════════════════════════════════════════════
 
 class ShipyardScreen(Screen):
+    """Экран верфи. Позволяет просматривать и покупать корпуса, модули и улучшения."""
+
     def __init__(self, station):
-        super().__init__(); self.station = station; self.tab = "hulls"
+        """Сохраняет ссылку на станцию и устанавливает вкладку «корпуса»."""
+        super().__init__(); self.station = station; self.tab = "hulls"  # активная вкладка: hulls/modules/upgrades
     def compose(self):
+        """Создаёт виджет содержимого и поле ввода команд."""
         yield Static(id="yard-content"); yield Input(placeholder="buy/sell <id>  |  (h)ulls (m)odules (u)pgrades  | close", id="yard-input")
     def on_mount(self): self._refresh()
     def _refresh(self):
+        """Обновляет отображение вкладки верфи (корпуса/модули/улучшения)."""
         app = self.app; st = self.station; s = app.ship
         lines = [f"┌─ SHIPYARD ─ {st.name} [{st.faction}] ─ Cr:{s.credits} ──────┐", "│                                              │", "│  ══ TABS: (H)ulls  (M)odules  (U)pgrades ══  │", "│                                              │"]
         if self.tab == "hulls":
@@ -1293,11 +1404,13 @@ class ShipyardScreen(Screen):
         lines.append("└──────────────────────────────────────────────┘")
         self.query_one("#yard-content").update("\n".join(lines))
     def on_key(self, event):
+        """Обрабатывает клавиши: H/M/U для вкладок, Escape для выхода."""
         if event.key in ("escape", "q"): event.stop(); self.dismiss()
         elif event.key in ("h","H"): self.tab = "hulls"; self._refresh()
         elif event.key in ("m","M"): self.tab = "modules"; self._refresh()
         elif event.key in ("u","U"): self.tab = "upgrades"; self._refresh()
     def on_input_submitted(self, event):
+        """Обрабатывает команды: buy, sell, switch, upgrade, close."""
         app = self.app; st = self.station; s = app.ship; v = event.value.strip().lower()
         if v in ("close","exit","quit"): self.dismiss(); return
         p = v.split()
@@ -1331,9 +1444,16 @@ class ShipyardScreen(Screen):
 # ═══════════════════════════════════════════════════════════════════════
 
 class CraftingScreen(Screen):
-    def __init__(self, station): super().__init__(); self.station = station
-    def compose(self): yield Static(id="craft-content"); yield Input(placeholder="craft <num> <item>  |  close", id="craft-input")
+    """Экран мастерской. Показывает доступные рецепты крафта и содержимое трюма."""
+
+    def __init__(self, station):
+        """Сохраняет ссылку на станцию."""
+        super().__init__(); self.station = station  # объект станции
+    def compose(self):
+        """Создаёт виджеты содержимого и поля ввода команд."""
+        yield Static(id="craft-content"); yield Input(placeholder="craft <num> <item>  |  close", id="craft-input")
     def on_mount(self):
+        """Формирует список рецептов и текущий груз."""
         app = self.app; st = self.station; s = app.ship
         lines = [f"┌─ WORKSHOP ─ {st.name} [{st.faction}] ─ Cr:{s.credits} ──────┐", "│                                              │", "│  ══ RECIPES ══                                │"]
         for rid in st.recipes_available:
@@ -1349,8 +1469,10 @@ class CraftingScreen(Screen):
         lines.append("└──────────────────────────────────────────────┘")
         self.query_one("#craft-content").update("\n".join(lines))
     def on_key(self, event):
+        """Закрывает экран по Escape или Q."""
         if event.key in ("escape","q"): event.stop(); self.dismiss()
     def on_input_submitted(self, event):
+        """Обрабатывает команду craft [кол-во] <item> или передаёт ввод в process_command()."""
         app = self.app; s = app.ship; v = event.value.strip().lower()
         if v in ("close","exit","quit"): self.dismiss(); return
         p = v.split()
@@ -1375,9 +1497,16 @@ class CraftingScreen(Screen):
 # ═══════════════════════════════════════════════════════════════════════
 
 class HireScreen(Screen):
-    def __init__(self, station): super().__init__(); self.station = station
-    def compose(self): yield Static(id="hire-content"); yield Input(placeholder="hire <num>  |  close", id="hire-input")
+    """Экран найма экипажа в таверне. Показывает доступных кандидатов и текущий экипаж."""
+
+    def __init__(self, station):
+        """Сохраняет ссылку на станцию."""
+        super().__init__(); self.station = station  # объект станции
+    def compose(self):
+        """Создаёт виджеты содержимого и поля ввода команд."""
+        yield Static(id="hire-content"); yield Input(placeholder="hire <num>  |  close", id="hire-input")
     def on_mount(self):
+        """Формирует список доступных для найма членов экипажа и текущий состав."""
         app = self.app; st = self.station; s = app.ship
         lines = [f"┌─ TAVERN ─ {st.name} [{st.faction}] ─ Cr:{s.credits} ──────┐", "│                                              │", "│  ══ AVAILABLE CREW ══                         │"]
         for i, cm in enumerate(st.crew_for_hire, 1):
@@ -1393,8 +1522,10 @@ class HireScreen(Screen):
         lines.append("└──────────────────────────────────────────────┘")
         self.query_one("#hire-content").update("\n".join(lines))
     def on_key(self, event):
+        """Закрывает экран по Escape или Q."""
         if event.key in ("escape","q"): event.stop(); self.dismiss()
     def on_input_submitted(self, event):
+        """Обрабатывает команду hire <num> или передаёт ввод в process_command()."""
         app = self.app; st = self.station; s = app.ship; v = event.value.strip().lower()
         if v in ("close","exit","quit"): self.dismiss(); return
         p = v.split()
@@ -1412,22 +1543,26 @@ class HireScreen(Screen):
 # ═══════════════════════════════════════════════════════════════════════
 
 class LandingPrepScreen(Screen):
-    """Choose crew member and equipment for ground expedition."""
+    """Экран подготовки к высадке. Позволяет выбрать члена экипажа для наземной экспедиции."""
 
     def __init__(self, site_type="station", site_name="Unknown"):
+        """Сохраняет параметры места высадки и сбрасывает индекс выбора."""
         super().__init__()
-        self.site_type = site_type
-        self.site_name = site_name
-        self._selected = 0
+        self.site_type = site_type  # тип места высадки: "station", "planet", "asteroid"
+        self.site_name = site_name  # название места высадки
+        self._selected = 0  # индекс выбранного члена экипажа
 
     def compose(self):
+        """Создаёт виджеты содержимого и поля ввода."""
         yield Static(id="landing-content")
         yield Input(placeholder="L to land on  |  close", id="landing-input")
 
     def on_mount(self):
+        """При монтировании обновляет экран подготовки."""
         self._refresh()
 
     def _refresh(self):
+        """Формирует список доступного (неназначенного) экипажа для экспедиции."""
         app = self.app
         if not hasattr(app, "ship"):
             return
@@ -1458,6 +1593,7 @@ class LandingPrepScreen(Screen):
         self.query_one("#landing-content").update("\n".join(lines))
 
     def on_key(self, event):
+        """Обрабатывает стрелки для выбора, Enter/D для запуска экспедиции, Escape для отмены."""
         app = self.app
         if event.key == "escape":
             event.stop(); self.dismiss(); return
@@ -1483,7 +1619,7 @@ class LandingPrepScreen(Screen):
             self._launch(cm)
 
     def _launch(self, crew_member):
-        """Launch ExpeditionScreen with selected crew member."""
+        """Запускает ExpeditionScreen с выбранным членом экипажа."""
         app = self.app
         from expedition import ExpeditionMap, ExpeditionController, ExpeditionScreen
         emp = ExpeditionMap(site_type=self.site_type)
@@ -1497,27 +1633,34 @@ class LandingPrepScreen(Screen):
 # ═══════════════════════════════════════════════════════════════════════
 
 class ScanScreen(Screen):
+    """Экран сканера. Показывает объекты в радиусе сенсоров и результаты активного сканирования."""
+
     def __init__(self):
+        """Инициализирует экран: пустой список целей, режим выбора, без результата."""
         super().__init__()
-        self._selected = 0
-        self._targets = []
-        self._result = None
-        self._mode = "select"  # select | result
+        self._selected = 0  # индекс выбранной цели
+        self._targets = []  # список доступных для сканирования объектов
+        self._result = None  # результат последнего сканирования
+        self._mode = "select"  # режим: "select" (выбор цели) | "result" (просмотр результата)
 
     def compose(self):
+        """Создаёт виджет отображения сканера."""
         yield Static(id="scan-content")
 
     def on_mount(self):
+        """Загружает цели и отображает интерфейс сканера."""
         self._refresh_targets()
         self._update_display()
 
     def _refresh_targets(self):
+        """Обновляет список сканируемых объектов в радиусе сенсоров."""
         app = self.app
         rng = app.ship.get_effective_stats().get("sensor_range", 5) * 2
         self._targets = app.galaxy.get_scannable_objects(app.player_x, app.player_y, rng)
         self._selected = min(self._selected, max(0, len(self._targets) - 1))
 
     def _update_display(self):
+        """Формирует и отображает список целей или результат сканирования."""
         app = self.app
         s = app.ship
         lines = []
@@ -1560,6 +1703,7 @@ class ScanScreen(Screen):
         self.query_one("#scan-content").update("\n".join(lines))
 
     def on_key(self, event):
+        """Обрабатывает клавиши: стрелки для выбора, Enter для сканирования, Escape для выхода/назад."""
         if event.key == "escape":
             if self._mode == "result":
                 self._mode = "select"
@@ -1601,25 +1745,30 @@ from config import load_settings, save_settings
 
 
 class ActionMenu(Screen):
-    """Context-aware action menu, opened by E key."""
+    """Контекстное меню действий, вызываемое клавишей E. Содержит разделы «Корабль», «Взаимодействие», «Система»."""
 
     def __init__(self):
+        """Инициализирует экран: сброс индекса выбора и разделов."""
         super().__init__()
-        self._selected = 0
-        self._sections = []
+        self._selected = 0  # индекс выбранного действия
+        self._sections = []  # список разделов: каждый — кортеж (название, список действий)
 
     def compose(self):
+        """Создаёт виджет отображения меню."""
         yield Static(id="action-content")
 
     def on_mount(self):
+        """Строит разделы меню и отображает их."""
         self._build_sections()
         self._render()
 
     def _at_station(self):
+        """Проверяет, пристыкован ли игрок к станции."""
         app = self.app
         return app.galaxy.get_station_at(app.player_x, app.player_y) if hasattr(app, "galaxy") else None
 
     def _nearby_npc(self):
+        """Ищет NPC (пирата или торговца) на соседних клетках."""
         app = self.app
         if not hasattr(app, "galaxy"): return None
         px, py = app.player_x, app.player_y
@@ -1630,6 +1779,7 @@ class ActionMenu(Screen):
         return None
 
     def _build_sections(self):
+        """Формирует разделы меню в зависимости от контекста (станция, тайл)."""
         app = self.app
         if not hasattr(app, "galaxy"):
             self._sections = [("System", [("q", "Close", lambda: self.dismiss())])]
@@ -1674,7 +1824,7 @@ class ActionMenu(Screen):
         self._sections.append((t("action.system"), sys_actions))
 
     def _dispatch(self, action_id):
-        """Execute an action by id."""
+        """Выполняет действие по его идентификатору."""
         app = self.app
         st = self._at_station()
         m = {
@@ -1700,6 +1850,7 @@ class ActionMenu(Screen):
         if fn: fn()
 
     def _render(self):
+        """Отрисовывает меню действий с учётом выбранного элемента."""
         lines = []; W = 60
         lines.append("┌"+"─"*W+"┐")
         lines.append("│"+"ACTIONS".center(W)+"│")
@@ -1718,6 +1869,7 @@ class ActionMenu(Screen):
         self.query_one("#action-content").update("\n".join(lines))
 
     def on_key(self, event):
+        """Обрабатывает клавиши: стрелки для навигации, Enter/буква для выбора, Escape для закрытия."""
         if event.key == "escape":
             event.stop(); self.dismiss(); return
         all_actions = [a for _, acts in self._sections for a in acts]
@@ -1737,19 +1889,26 @@ class ActionMenu(Screen):
 # ═══════════════════════════════════════════════════════════════════════
 
 class SettingsScreen(Screen):
+    """Экран настроек игры. Позволяет изменить язык, автсохранение и привязки клавиш."""
+
     def __init__(self):
+        """Загружает настройки, сбрасывает индекс выбора и режим ожидания клавиши."""
         super().__init__()
-        self._settings = load_settings()
-        self._selected = 0
-        self._waiting = None
+        self._settings = load_settings()  # словарь с текущими настройками
+        self._selected = 0  # индекс выбранной строки
+        self._waiting = None  # идентификатор действия, ожидающего нажатия клавиши
 
     def compose(self):
+        """Создаёт виджеты содержимого и поля ввода."""
         yield Static(id="settings-content")
         yield Input(placeholder="change <action> <key>  |  close", id="settings-input")
 
-    def on_mount(self): self._render()
+    def on_mount(self):
+        """При монтировании отображает панель настроек."""
+        self._render()
 
     def _render(self):
+        """Формирует и отображает список опций настроек: язык, автсохранение, клавиши, сброс."""
         s = self._settings; W = 60
         lines = ["┌"+"─"*W+"┐", "│"+t("ui.settings.title").center(W)+"│", "├"+"─"*W+"┤"]
         opts = []
@@ -1782,6 +1941,7 @@ class SettingsScreen(Screen):
         self.query_one("#settings-content").update("\n".join(lines))
 
     def _opts(self):
+        """Возвращает список опций для навигации: (id, значение)."""
         s = self._settings
         r = [("lang", s["lang"]), ("autosave", s["autosave"])]
         for k in s["keys"]: r.append(("key_"+k, s["keys"][k]))
@@ -1789,6 +1949,7 @@ class SettingsScreen(Screen):
         return r
 
     def on_key(self, event):
+        """Обрабатывает клавиши: Enter для переключения/изменения, стрелки, Escape для сохранения и выхода."""
         if self._waiting:
             action = self._waiting
             self._waiting = None
@@ -1823,6 +1984,7 @@ class SettingsScreen(Screen):
                 self._render()
 
     def on_input_submitted(self, event):
+        """Обрабатывает текстовую команду change <action> <key> или close."""
         v = event.value.strip().lower()
         if v in ("close","exit","quit"):
             self._save_close(); return
@@ -1832,6 +1994,7 @@ class SettingsScreen(Screen):
         self._render()
 
     def _save_close(self):
+        """Сохраняет настройки в файл, обновляет язык интерфейса и закрывает экран."""
         save_settings(self._settings)
         from locales import set_lang; set_lang(self._settings["lang"])
         self.dismiss()

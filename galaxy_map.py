@@ -1,4 +1,12 @@
-"""Galaxy Map — main app entry point."""
+"""
+Модуль galaxy_map — главное приложение (App) и карта галактики.
+
+Содержит класс GalaxyMapApp — основной экземпляр Textual-приложения,
+управляющий состоянием игры, отрисовкой карты, обработкой ввода
+и координацией всех подсистем (торговля, бой, крафт, дипломатия и т.д.).
+
+Также определяет перечисление GameState для всех режимов игры.
+"""
 
 import random
 import re
@@ -35,20 +43,35 @@ from battle import BattleScreen, BattleController
 # ---------------------------------------------------------------------------
 
 class GameState(Enum):
-    RACE_SELECT = auto()
-    START_SCREEN = auto()
-    PLAYING = auto()
-    PAUSED = auto()
-    INSPECTING = auto()
-    HELP = auto()
-    NEWS = auto()
-    GAME_OVER = auto()
+    """Перечисление режимов игры.
+
+    Определяет, в каком состоянии находится приложение:
+    выбор расы, главный экран, игра, пауза, осмотр, справка,
+    новости, конец игры.
+    """
+    RACE_SELECT = auto()   # Экран выбора расы
+    START_SCREEN = auto()  # Стартовый экран с названием игры
+    PLAYING = auto()       # Основной игровой режим
+    PAUSED = auto()        # Пауза
+    INSPECTING = auto()    # Режим осмотра карты (свободный курсор)
+    HELP = auto()          # Экран справки
+    NEWS = auto()          # Экран новостей галактики
+    GAME_OVER = auto()     # Конец игры
 
 # ---------------------------------------------------------------------------
 # App
 # ---------------------------------------------------------------------------
 
 class GalaxyMapApp(App):
+    """Главный класс приложения — карта галактики.
+
+    Управляет состоянием игры, отрисовкой карты, обработкой
+    пользовательского ввода, взаимодействиями с объектами,
+    координацией торговли, боя, крафта и дипломатии.
+
+    Построен на базе Textual (App). Использует реактивное
+    свойство player_x/player_y для отслеживания позиции игрока.
+    """
     CSS = """
     #map { height: 1fr; content-align: center middle; }
     #info-panel {
@@ -74,24 +97,50 @@ class GalaxyMapApp(App):
     player_y = reactive(HEIGHT // 2)
 
     def __init__(self):
+        """Инициализация приложения и игрового состояния.
+
+        Создаёт галактику, корабль игрока, логгер и сбрасывает
+        все вспомогательные переменные. Начинает с экрана выбора расы.
+
+        Parameters
+        ----------
+        Нет параметров — все поля сбрасываются на значения по умолчанию.
+
+        Returns
+        -------
+        None
+        """
         super().__init__()
-        self.state = GameState.RACE_SELECT
-        self.galaxy = Galaxy()
-        self.ship = PlayerShip("Endeavour", 100)
-        self.logger = GameLogger()
-        self.death_cause = None
-        self.interaction_actions = []
-        self.cursor_x = WIDTH // 2
-        self.cursor_y = HEIGHT // 2
-        self._politics_timer = 0
-        self.race_selected = False
-        self._prev_state = GameState.START_SCREEN
-        self._interaction_active = False
-        self._pending_battle = None
-        self._dismiss_handled_escape = False
+        self.state = GameState.RACE_SELECT  # Текущее состояние игры
+        self.galaxy = Galaxy()             # Модель галактики (тайлы, объекты, NPC)
+        self.ship = PlayerShip("Endeavour", 100)  # Корабль игрока
+        self.logger = GameLogger()          # Логгер событий с кольцевым буфером
+        self.death_cause = None             # Причина смерти (выводится на Game Over)
+        self.interaction_actions = []       # Список доступных действий при взаимодействии
+        self.cursor_x = WIDTH // 2          # Позиция курсора в режиме осмотра (X)
+        self.cursor_y = HEIGHT // 2         # Позиция курсора в режиме осмотра (Y)
+        self._politics_timer = 0            # Счётчик ходов до следующего политического события
+        self.race_selected = False          # Флаг: раса выбрана
+        self._prev_state = GameState.START_SCREEN  # Предыдущее состояние (для возврата)
+        self._interaction_active = False    # Флаг: открыто меню взаимодействия
+        self._pending_battle = None         # Ожидающий битвы NPC (ставится из tick)
+        self._dismiss_handled_escape = False  # Флаг: Esc уже обработан при закрытии экрана
         self._init_player_position()
 
     def _init_player_position(self):
+        """Устанавливает начальную позицию игрока в центре карты.
+
+        Если центральная клетка непроходима, случайно подбирает
+        проходимую позицию в пределах карты.
+
+        Parameters
+        ----------
+        Нет параметров (использует self.galaxy, self.player_x, self.player_y).
+
+        Returns
+        -------
+        None
+        """
         self.player_x = WIDTH // 2
         self.player_y = HEIGHT // 2
         while not self.galaxy.is_passable(self.player_x, self.player_y):
@@ -103,6 +152,20 @@ class GalaxyMapApp(App):
     # -----------------------------------------------------------------------
 
     def select_race(self, choice):
+        """Обрабатывает выбор расы игроком.
+
+        Принимает строку (цифру или название расы) и устанавливает
+        соответствующую расу корабля. Переводит игру в режим PLAYING.
+
+        Parameters
+        ----------
+        choice : str
+            Выбор игрока: "1".."5", название расы или пустая строка (Human).
+
+        Returns
+        -------
+        None
+        """
         c = choice.lower().strip()
         if c in ("1", "human", ""):
             self.ship.race = "human"
@@ -125,6 +188,19 @@ class GalaxyMapApp(App):
     # -----------------------------------------------------------------------
 
     def restart_game(self):
+        """Полностью перезапускает игру.
+
+        Сбрасывает счётчик NPC, состояние, галактику, корабль,
+        логгер и все вспомогательные флаги до начальных значений.
+
+        Parameters
+        ----------
+        Нет параметров.
+
+        Returns
+        -------
+        None
+        """
         models.NPCShip_id_counter = 0
         self.state = GameState.RACE_SELECT
         self.galaxy = Galaxy()
@@ -142,6 +218,16 @@ class GalaxyMapApp(App):
         self.update_info()
 
     def compose(self):
+        """Строит дерево виджетов приложения.
+
+        Вызывается Textual при монтировании. Размещает Header, контейнер
+        с картой, информационную панель, лог и Footer.
+
+        Returns
+        -------
+        ComposeResult
+            Последовательность виджетов для отображения.
+        """
         yield Header()
         yield Container(Static(id="map"))
         yield Static(id="info-panel")
@@ -149,6 +235,18 @@ class GalaxyMapApp(App):
         yield Footer()
 
     def on_mount(self):
+        """Вызывается после монтирования всех виджетов.
+
+        Загружает настройки языка, обновляет карту и информационную панель.
+
+        Parameters
+        ----------
+        Нет параметров.
+
+        Returns
+        -------
+        None
+        """
         from locales import set_lang
         from config import load_settings
         _cfg = load_settings()
@@ -158,9 +256,24 @@ class GalaxyMapApp(App):
 
     # -----------------------------------------------------------------------
     # Rendering — screens
+    #   Отрисовка экранов: стартовый экран, справка, новости,
+    #   пауза, game over, меню взаимодействия.
     # -----------------------------------------------------------------------
 
     def render_start_screen(self):
+        """Отрисовывает стартовый экран (выбор расы или титульный экран).
+
+        В зависимости от self.state показывает либо меню выбора расы,
+        либо стартовый экран с названием игры и подсказками по управлению.
+
+        Parameters
+        ----------
+        Нет параметров (использует self.state, self.ship.race).
+
+        Returns
+        -------
+        None — обновляет виджет "#map" напрямую.
+        """
         if self.state == GameState.RACE_SELECT:
             self.query_one("#map").update("\n".join([
                 "", "",
@@ -185,6 +298,16 @@ class GalaxyMapApp(App):
         ]))
 
     def render_help_screen(self):
+        """Формирует текст экрана справки с подсказками по управлению.
+
+        Содержит раскладку клавиш для движения, действий,
+        управления кораблём, интерфейса и консольных команд.
+
+        Returns
+        -------
+        str
+            Многострочная строка с центрированным текстом справки.
+        """
         lines = [
             "  ┏━ HELP ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓",
             "  ┃                                                 ┃",
@@ -230,6 +353,16 @@ class GalaxyMapApp(App):
         return "\n".join(out)
 
     def render_news_screen(self):
+        """Формирует экран новостей галактики.
+
+        Показывает последние события (news), состояние дипломатии,
+        активные миссии игрока и рыночную сводку ближайших станций.
+
+        Returns
+        -------
+        str
+            Многострочная строка с форматированным экраном новостей.
+        """
         g = self.galaxy
         s = self.ship
         nt = ["┌" + "─" * 58 + "┐"]
@@ -305,6 +438,15 @@ class GalaxyMapApp(App):
         return "\n".join(out)
 
     def render_pause_overlay(self):
+        """Накладывает текст паузы поверх карты.
+
+        Показывает затемнённую карту с меню: Continue, Restart, Quit.
+
+        Returns
+        -------
+        str
+            Многострочная строка с паузой, наложенной на карту.
+        """
         lines = self._build_map_lines()
         ov = [
             "", "  ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓",
@@ -324,6 +466,15 @@ class GalaxyMapApp(App):
         return "\n".join(lines)
 
     def render_game_over_screen(self):
+        """Накладывает текст Game Over поверх карты.
+
+        Показывает причину смерти и меню Restart/Quit.
+
+        Returns
+        -------
+        str
+            Многострочная строка с Game Over, наложенным на карту.
+        """
         lines = self._build_map_lines()
         cause = self.death_cause or f"{self.ship.name} lost."
         if len(cause) > 36:
@@ -347,6 +498,16 @@ class GalaxyMapApp(App):
         return "\n".join(lines)
 
     def render_interaction_menu(self):
+        """Накладывает меню взаимодействия поверх карты.
+
+        Показывает список доступных действий (торговля, ремонт,
+        разговор, бой и т.д.) с клавишами быстрого выбора.
+
+        Returns
+        -------
+        str
+            Многострочная строка с меню, наложенным на карту.
+        """
         lines = self._build_map_lines()
         acts = self.interaction_actions or [("", "Nothing.", "", "")]
         bw = 50
@@ -373,9 +534,20 @@ class GalaxyMapApp(App):
 
     # -----------------------------------------------------------------------
     # Map rendering helpers
+    #   Построение строк карты: тайлы, NPC, курсор, позиция игрока.
     # -----------------------------------------------------------------------
 
     def _build_map_lines(self):
+        """Собирает массив строк карты с учётом всех объектов.
+
+        Накладывает на карту торговцев, пиратов, позицию игрока
+        и курсор осмотра (в режиме INSPECTING).
+
+        Returns
+        -------
+        list[str]
+            Список строк, представляющих карту построчно.
+        """
         lines = []
         show = self.state in (GameState.PLAYING, GameState.INSPECTING) or self._interaction_active
         nc = {}
@@ -400,6 +572,19 @@ class GalaxyMapApp(App):
         return lines
 
     def update_map(self):
+        """Обновляет виджет карты в зависимости от текущего состояния игры.
+
+        Выбирает, какой экран отображать: стартовый, справка, новости,
+        пауза, game over, меню взаимодействия, осмотр или обычная карта.
+
+        Parameters
+        ----------
+        Нет параметров (использует self.state и другие поля).
+
+        Returns
+        -------
+        None
+        """
         if self.state == GameState.RACE_SELECT:
             self.render_start_screen()
         elif self.state == GameState.HELP:
@@ -421,9 +606,21 @@ class GalaxyMapApp(App):
 
     # -----------------------------------------------------------------------
     # Info panel & helpers
+    #   Сбор и отображение информации: сканирование, статус корабля,
+    #   груз, репутация, гравитационные эффекты.
     # -----------------------------------------------------------------------
 
     def _scan_nearby(self):
+        """Сканирует ближайшие объекты вокруг игрока.
+
+        Использует сенсорную дальность корабля. Возвращает строку
+        с направлениями, иконками и дистанциями до объектов и NPC.
+
+        Returns
+        -------
+        str
+            Отформатированная строка с результатами сканирования.
+        """
         radius = int(self.ship.get_effective_stats().get("sensor_range", 7))
         found = []
         for dy in range(-radius, radius + 1):
@@ -465,6 +662,16 @@ class GalaxyMapApp(App):
         return "  " + "  ".join(found[:8])
 
     def _get_ship_status(self):
+        """Проверяет внешние эффекты вокруг корабля.
+
+        Определяет гравитационное влияние чёрных дыр, радиацию от звёзд,
+        нахождение в астероидном поле и близость к варп-вратам.
+
+        Returns
+        -------
+        list[str]
+            Список строк с описанием активных эффектов.
+        """
         eff = []
         px, py = self.player_x, self.player_y
         for bh_x, bh_y in self.galaxy.black_holes:
@@ -494,6 +701,13 @@ class GalaxyMapApp(App):
         return eff
 
     def _cargo_summary(self):
+        """Формирует краткую сводку груза на борту.
+
+        Returns
+        -------
+        str
+            Строка вида "Cargo: ресурс:количество ... (исп/вместимость)".
+        """
         if not self.ship.cargo.items:
             return "Cargo: empty"
         parts = [
@@ -505,11 +719,32 @@ class GalaxyMapApp(App):
                 f"({self.ship.cargo.used()}/{self.ship.cargo.capacity + cb})")
 
     def _reputation_summary(self):
+        """Формирует строку репутации по всем фракциям.
+
+        Returns
+        -------
+        str
+            Строка вида "фракция:значение фракция:значение ...".
+        """
         return "  ".join(
             f"{k}:{v}" for k, v in self.ship.reputation.items() if k in FACTIONS
         )
 
     def update_info(self):
+        """Обновляет информационную панель и лог.
+
+        В зависимости от состояния показывает подсказки,
+        данные осмотра, статус корабля или полную панель с
+        показателями прочности, щита, топлива, кредитов, груза и т.д.
+
+        Parameters
+        ----------
+        Нет параметров (использует self.state и другие поля).
+
+        Returns
+        -------
+        None
+        """
         if self.state in (GameState.RACE_SELECT, GameState.START_SCREEN):
             self.query_one("#info-panel").update("H=Help  N=News  F1=Bridge")
             self.query_one("#log").update("")
@@ -582,6 +817,20 @@ class GalaxyMapApp(App):
     # -----------------------------------------------------------------------
 
     def _log_event(self, m):
+        """Записывает событие в лог с соответствующей категорией.
+
+        Распределяет сообщения по категориям (combat, danger, system,
+        exploration) на основе ключевых слов.
+
+        Parameters
+        ----------
+        m : str
+            Текст сообщения для логирования.
+
+        Returns
+        -------
+        None
+        """
         ml = m.lower()
         if "radiation" in ml or "collision" in ml:
             self.logger.combat(m)
@@ -594,9 +843,26 @@ class GalaxyMapApp(App):
 
     # -----------------------------------------------------------------------
     # Events
+    #   Политические и случайные события галактики:
+    #   крестовые походы, вторжения, эпидемии, караваны, суперновые и т.д.
     # -----------------------------------------------------------------------
 
     def _check_political_events(self, out):
+        """Проверяет и генерирует политические события в галактике.
+
+        Срабатывает раз в 30-60 ходов. Возможные события:
+        crusade, invasion, schism, plague, scandal, treaty.
+        Меняет состояние дипломатии и добавляет новости.
+
+        Parameters
+        ----------
+        out : list
+            Список, в который добавляются текстовые описания событий.
+
+        Returns
+        -------
+        None
+        """
         self._politics_timer += 1
         if self._politics_timer < random.randint(30, 60):
             return
@@ -649,6 +915,20 @@ class GalaxyMapApp(App):
             g.add_news(f"☮ TREATY!", f"{name1} and {name2} sign truce."); out.append("[EVENT] Treaty!")
 
     def _check_random_events(self, out):
+        """Проверяет и генерирует случайные события (3% шанс за ход).
+
+        Возможные события: caravan (появление торговцев),
+        raid (пираты), supernova (урон игроку), crisis (кризис цен).
+
+        Parameters
+        ----------
+        out : list
+            Список, в который добавляются текстовые описания событий.
+
+        Returns
+        -------
+        None
+        """
         if random.random() > 0.03:
             return
         g = self.galaxy
@@ -683,6 +963,8 @@ class GalaxyMapApp(App):
 
     # -----------------------------------------------------------------------
     # Interaction system
+    #   Сбор доступных взаимодействий с объектами и NPC,
+    #   обработка выбранного действия.
     # -----------------------------------------------------------------------
 
     OBJ_LABELS = {
@@ -693,6 +975,17 @@ class GalaxyMapApp(App):
     }
 
     def _get_available_interactions(self):
+        """Собирает список доступных действий в текущей позиции.
+
+        Проверяет объекты на клетке игрока и вокруг неё, а также
+        NPC поблизости. Возвращает список кортежей
+        (клавиша, описание, имя_метода, направление).
+
+        Returns
+        -------
+        list[tuple[str, str, str, str]]
+            Список доступных действий для меню взаимодействия.
+        """
         acts = []
         px, py = self.player_x, self.player_y
 
@@ -749,6 +1042,20 @@ class GalaxyMapApp(App):
         return acts
 
     def _run_interaction(self, mn):
+        """Запускает обработчик взаимодействия по имени метода.
+
+        Вызывает переданный метод, сбрасывает флаг взаимодействия
+        и обновляет карту с панелью информации.
+
+        Parameters
+        ----------
+        mn : str
+            Имя метода-обработчика (например, "_act_refuel").
+
+        Returns
+        -------
+        None
+        """
         h = getattr(self, mn, None)
         if h:
             h()
@@ -758,8 +1065,11 @@ class GalaxyMapApp(App):
             self.update_info()
 
     # ---------- interaction handlers ----------
+    #   Обработчики конкретных действий: заправка, ремонт, торговля,
+    #   сканирование, стыковка, бой с пиратами и т.д.
 
     def _act_refuel(self):
+        """Дозаправка корабля на станции за 50 кредитов (+20 топлива)."""
         if self.ship.credits >= 50:
             self.ship.credits -= 50
             self.ship.fuel = min(100, self.ship.fuel + 20)
@@ -768,6 +1078,7 @@ class GalaxyMapApp(App):
             self.logger.system("Need 50cr.")
 
     def _act_repair(self):
+        """Ремонт корпуса на станции за 30 кредитов (+15 прочности)."""
         if self.ship.credits >= 30:
             self.ship.credits -= 30
             max_hull = 100 + self.ship.get_effective_stats().get("hull_bonus", 0)
@@ -778,6 +1089,7 @@ class GalaxyMapApp(App):
             self.logger.system("Need 30cr.")
 
     def _act_open_trade(self):
+        """Открывает экран торговли с текущей станцией."""
         st = self.galaxy.get_station_at(self.player_x, self.player_y)
         if st:
             self.push_screen(TradeScreen(st))
@@ -785,6 +1097,7 @@ class GalaxyMapApp(App):
             self.logger.system("No station.")
 
     def _act_join_religion(self):
+        """Присоединяется к религии храма на станции."""
         st = self.galaxy.get_station_at(self.player_x, self.player_y)
         if not st or st.stype != "temple":
             return
@@ -798,6 +1111,7 @@ class GalaxyMapApp(App):
             self.logger.system("No doctrine.")
 
     def _act_modules_shop(self):
+        """Открывает магазин модулей для корабля."""
         st = self.galaxy.get_station_at(self.player_x, self.player_y)
         if st and st.modules_for_sale:
             from ui import ModuleShopScreen
@@ -806,6 +1120,7 @@ class GalaxyMapApp(App):
             self.logger.system("No modules for sale.")
 
     def _act_missions(self):
+        """Открывает экран миссий текущей станции."""
         st = self.galaxy.get_station_at(self.player_x, self.player_y)
         if st and st.missions:
             from ui import MissionScreen
@@ -814,6 +1129,7 @@ class GalaxyMapApp(App):
             self.logger.system("No missions.")
 
     def _act_shipyard(self):
+        """Открывает верфь для покупки/продажи корпусов кораблей."""
         st = self.galaxy.get_station_at(self.player_x, self.player_y)
         if st and st.stype == "shipyard":
             self.push_screen(ShipyardScreen(st))
@@ -821,6 +1137,7 @@ class GalaxyMapApp(App):
             self.logger.system("No shipyard.")
 
     def _act_workshop(self):
+        """Открывает экран крафта в мастерской."""
         st = self.galaxy.get_station_at(self.player_x, self.player_y)
         if st and st.stype == "workshop":
             self.push_screen(CraftingScreen(st))
@@ -828,6 +1145,7 @@ class GalaxyMapApp(App):
             self.logger.system("No workshop.")
 
     def _act_tavern(self):
+        """Открывает экран найма экипажа в таверне."""
         st = self.galaxy.get_station_at(self.player_x, self.player_y)
         if st and st.stype == "tavern":
             self.push_screen(HireScreen(st))
@@ -869,12 +1187,17 @@ class GalaxyMapApp(App):
             self.push_screen(LandingPrepScreen(site_type=site_type, site_name=site_name))
 
     def _act_scan_planet(self):
+        """Сканирует планету: выводит случайный тип и состав."""
         self.logger.exploration(
             f"Scan: {random.choice(['rocky','gas giant','ice','desert','oceanic'])}, "
             f"{random.choice(['iron','silicon','water ice','minerals'])}."
         )
 
     def _act_land(self):
+        """Высадка на планету с возможными исходами.
+
+        Случайный результат: находка кредитов, урон, ресурсы или шторм.
+        """
         outcomes = [
             ("Ruins +50cr", 50, ""), ("Wildlife! Hull-5", -5, ""),
             ("Resources +30cr", 30, ""), ("Storm! Hull-8", -8, ""),
@@ -893,6 +1216,10 @@ class GalaxyMapApp(App):
             self.death_cause = "Killed on planet."
 
     def _act_mine(self):
+        """Добыча ресурсов в астероидном поле.
+
+        60% шанс добыть 2-6 единиц руды.
+        """
         if random.random() < 0.6:
             amt = random.randint(2, 6)
             if self.ship.cargo.add("ore", amt):
@@ -904,6 +1231,10 @@ class GalaxyMapApp(App):
             self.logger.exploration("Depleted.")
 
     def _act_use_wormhole(self):
+        """Телепортация через червоточину в другую червоточину.
+
+        Если червоточина всего одна — самоуничтожается.
+        """
         if len(self.galaxy.wormholes) > 1:
             o = (self.player_x, self.player_y)
             while o == (self.player_x, self.player_y):
@@ -919,6 +1250,11 @@ class GalaxyMapApp(App):
             self.galaxy.wormholes = [w for w in self.galaxy.wormholes if w != (px, py)]
 
     def _act_hail_npc(self):
+        """Попытка установить контакт с NPC поблизости.
+
+        Если рядом торговец — выводит его состояние.
+        Если пират — угрожающее сообщение.
+        """
         for t in self.galaxy.traders:
             if t.alive and max(abs(t.x - self.player_x), abs(t.y - self.player_y)) <= 1:
                 self.logger.exploration(
@@ -931,6 +1267,7 @@ class GalaxyMapApp(App):
         self.logger.system("No NPC.")
 
     def _act_battle_pirate(self):
+        """Инициирует бой с пиратом в радиусе атаки."""
         rng = self.ship.get_effective_stats().get("range", 1)
         for p in self.galaxy.pirates:
             if p.alive and max(abs(p.x - self.player_x), abs(p.y - self.player_y)) <= rng:
@@ -959,9 +1296,25 @@ class GalaxyMapApp(App):
 
     # -----------------------------------------------------------------------
     # World tick
+    #   Один ход игрового мира: регенерация щитов, проверка миссий,
+    #   движение NPC, политические и случайные события.
     # -----------------------------------------------------------------------
 
     def tick_world(self):
+        """Выполняет один ход игрового мира.
+
+        Включает: регенерацию щитов, проверку просроченных миссий,
+        обновление NPC, политические и случайные события, уведомления
+        о повреждении модулей и завершение миссий на станции.
+
+        Parameters
+        ----------
+        Нет параметров.
+
+        Returns
+        -------
+        None
+        """
         self.logger.new_turn()
         self.ship.regen_shields()
         # Fail expired missions
@@ -1014,6 +1367,23 @@ class GalaxyMapApp(App):
         self.update_info()
 
     def move_player(self, dx, dy):
+        """Перемещает игрока по карте в заданном направлении.
+
+        Учитывает скорость корабля (multistep), проходимость клеток,
+        червоточины, расход топлива. По окончании движения вызывает
+        tick_world() для обновления мира.
+
+        Parameters
+        ----------
+        dx : int
+            Смещение по X (-1, 0, 1).
+        dy : int
+            Смещение по Y (-1, 0, 1).
+
+        Returns
+        -------
+        None
+        """
         if self.state != GameState.PLAYING:
             return
         dn = self._direction_name(dx, dy)
@@ -1056,9 +1426,26 @@ class GalaxyMapApp(App):
 
     # -----------------------------------------------------------------------
     # Console
+    #   Обработка консольных команд (~): сканирование, торговля,
+    #   управление кораблём, экипажем, модулями и т.д.
     # -----------------------------------------------------------------------
 
     def process_command(self, raw):
+        """Обрабатывает консольную команду, введённую игроком.
+
+        Поддерживает десятки команд: scan, inv, give/take, refuel,
+        trade, prices, market, power, modules, cargo, reputation,
+        diplomacy, attack, crew, ship, craft, upgrade, module и др.
+
+        Parameters
+        ----------
+        raw : str
+            Сырая строка, введённая в консоли.
+
+        Returns
+        -------
+        None — результаты выводятся через self.logger.
+        """
         raw = raw.strip()
         if not raw:
             self.logger.system("Type 'help'.")
@@ -1593,9 +1980,26 @@ class GalaxyMapApp(App):
 
     # -----------------------------------------------------------------------
     # Key handling
+    #   Обработка нажатий клавиш: движение, взаимодействие, осмотр,
+    #   пауза, консоль, помощь, новости и т.д.
     # -----------------------------------------------------------------------
 
     def on_key(self, event):
+        """Обрабатывает нажатия клавиш в зависимости от состояния игры.
+
+        Реагирует на WASD/стрелки (движение), E (взаимодействие),
+        I (осмотр), H (справка), N (новости), Esc (пауза/выход),
+        F1 (мостик), ~ (консоль), пробел (ожидание) и другие клавиши.
+
+        Parameters
+        ----------
+        event : textual.events.Key
+            Событие нажатия клавиши с полем event.key.
+
+        Returns
+        -------
+        None
+        """
         if self.state == GameState.RACE_SELECT:
             if event.key in ("1", "2", "3", "4", "5"):
                 self.select_race(event.key)
