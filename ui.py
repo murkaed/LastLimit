@@ -1881,6 +1881,14 @@ class ActionMenu(Screen):
         tile = app.galaxy.tiles[app.player_y][app.player_x] if hasattr(app, "galaxy") else ""
         if tile in ("o", "÷", "◈"):
             interact.append(("l", t("action.land"), "land"))
+        # NPC interactions
+        npc = self._nearby_npc()
+        if npc:
+            from models import TraderShip
+            if isinstance(npc, TraderShip):
+                interact.append(("t", t("action.talk"), "trader_talk"))
+            else:
+                interact.append(("a", t("action.attack"), "attack_npc"))
         if interact:
             self._sections.append((t("action.interact"), interact))
 
@@ -1917,10 +1925,50 @@ class ActionMenu(Screen):
             "refuel": lambda: app._act_refuel(),
             "repair": lambda: app._act_repair(),
             "land": lambda: app._try_landing(),
+            "trader_talk": lambda: self._trader_talk(app),
+            "attack_npc": lambda: self._attack_npc(app),
             "settings": lambda: app.push_screen(SettingsScreen()),
         }
         fn = m.get(action_id)
         if fn: fn()
+
+    def _trader_talk(self, app):
+        """Открывает окно взаимодействия с трейдером — торговля и миссии."""
+        npc = self._nearby_npc()
+        if not npc:
+            return
+        from models import TraderShip
+        if isinstance(npc, TraderShip):
+            # Trade with trader
+            app.logger.system(f"✉ {npc.name}: 'Need supplies? I have metal, food…'")
+            # Give a random mission if possible
+            from models import Mission
+            import random
+            from config import RESOURCES
+            rid = random.choice(list(RESOURCES))
+            amt = random.randint(2, 5)
+            price = RESOURCES[rid]["base_price"]
+            reward = price * amt * 2
+            nearby_stations = app.galaxy.stations_in_range(npc.x, npc.y, 20)
+            if nearby_stations:
+                target = random.choice(nearby_stations).name
+                m = Mission("deliver", rid, amt, target, reward,
+                           random.randint(15, 25),
+                           title=f"Trader: deliver {amt}x {RESOURCES[rid]['name']}",
+                           description=f"{npc.name} needs supplies delivered.",
+                           giver_station=npc.name)
+                msg, ok = app.ship.add_mission(m)
+                app.logger.system(msg)
+            else:
+                app.logger.system(f"{npc.name} has no contacts.")
+        else:
+            app._initiate_battle(npc)
+
+    def _attack_npc(self, app):
+        """Атакует ближайшего NPC."""
+        npc = self._nearby_npc()
+        if npc:
+            app._initiate_battle(npc)
 
     def _refresh_ui(self):
         """Отрисовывает меню действий с учётом выбранного элемента."""
