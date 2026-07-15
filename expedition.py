@@ -676,9 +676,9 @@ class ExpeditionScreen(Screen):
 
     def _update(self):
         """Обновляет содержимое Static-виджета текущей отрисовкой карты."""
-        self.query_one("#expedition-content").update(self._render())
+        self.query_one("#expedition-content").update(self._build_display())
 
-    def _render(self):
+    def _build_display(self):
         """Отрисовывает карту, статус-панель, журнал и подсказки.
 
         Возвращает:
