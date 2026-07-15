@@ -1760,7 +1760,7 @@ class ActionMenu(Screen):
     def on_mount(self):
         """Строит разделы меню и отображает их."""
         self._build_sections()
-        self._render()
+        self._refresh_ui()
 
     def _at_station(self):
         """Проверяет, пристыкован ли игрок к станции."""
@@ -1849,7 +1849,7 @@ class ActionMenu(Screen):
         fn = m.get(action_id)
         if fn: fn()
 
-    def _render(self):
+    def _refresh_ui(self):
         """Отрисовывает меню действий с учётом выбранного элемента."""
         lines = []; W = 60
         lines.append("┌"+"─"*W+"┐")
@@ -1874,9 +1874,9 @@ class ActionMenu(Screen):
             event.stop(); self.dismiss(); return
         all_actions = [a for _, acts in self._sections for a in acts]
         if event.key == "up" and all_actions:
-            self._selected = (self._selected-1)%len(all_actions); self._render()
+            self._selected = (self._selected-1)%len(all_actions); self._refresh_ui()
         elif event.key == "down" and all_actions:
-            self._selected = (self._selected+1)%len(all_actions); self._render()
+            self._selected = (self._selected+1)%len(all_actions); self._refresh_ui()
         elif event.key == "enter" and all_actions:
             _, _, aid = all_actions[self._selected]; self._dispatch(aid); self.dismiss()
         for i, (key, _, aid) in enumerate(all_actions):
@@ -1905,9 +1905,9 @@ class SettingsScreen(Screen):
 
     def on_mount(self):
         """При монтировании отображает панель настроек."""
-        self._render()
+        self._refresh_ui()
 
-    def _render(self):
+    def _refresh_ui(self):
         """Формирует и отображает список опций настроек: язык, автсохранение, клавиши, сброс."""
         s = self._settings; W = 60
         lines = ["┌"+"─"*W+"┐", "│"+t("ui.settings.title").center(W)+"│", "├"+"─"*W+"┤"]
@@ -1955,13 +1955,13 @@ class SettingsScreen(Screen):
             self._waiting = None
             if event.key not in ("escape","enter"):
                 self._settings["keys"][action] = event.key
-            self._render(); return
+            self._refresh_ui(); return
         if event.key == "escape":
             self._save_close(); return
         if event.key == "up":
-            self._selected = (self._selected-1)%len(self._opts()); self._render()
+            self._selected = (self._selected-1)%len(self._opts()); self._refresh_ui()
         elif event.key == "down":
-            self._selected = (self._selected+1)%len(self._opts()); self._render()
+            self._selected = (self._selected+1)%len(self._opts()); self._refresh_ui()
         elif event.key == "enter":
             opts = self._opts()
             if self._selected >= len(opts): return
@@ -1969,19 +1969,19 @@ class SettingsScreen(Screen):
             if oid == "lang":
                 s["lang"] = "en" if s["lang"]=="ru" else "ru"
                 from locales import set_lang; set_lang(s["lang"])
-                self._render()
+                self._refresh_ui()
             elif oid == "autosave":
                 s["autosave"] = not s["autosave"]
-                self._render()
+                self._refresh_ui()
             elif oid.startswith("key_"):
                 action = oid[4:]
                 self._waiting = action
-                self._render()
+                self._refresh_ui()
             elif oid == "reset":
                 from config import DEFAULT_SETTINGS
                 self._settings = dict(DEFAULT_SETTINGS)
                 from locales import set_lang; set_lang(self._settings["lang"])
-                self._render()
+                self._refresh_ui()
 
     def on_input_submitted(self, event):
         """Обрабатывает текстовую команду change <action> <key> или close."""
@@ -1991,7 +1991,7 @@ class SettingsScreen(Screen):
         p = v.split()
         if p[0]=="change" and len(p)>=3 and p[1] in self._settings["keys"]:
             self._settings["keys"][p[1]] = p[2]
-        self._render()
+        self._refresh_ui()
 
     def _save_close(self):
         """Сохраняет настройки в файл, обновляет язык интерфейса и закрывает экран."""
