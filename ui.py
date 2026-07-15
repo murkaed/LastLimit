@@ -301,7 +301,7 @@ class CargoScreen(Screen):
     def on_key(self, event):
         """Обрабатывает клавиши: Escape, стрелки, Enter, Delete, S, 1-6."""
         if event.key == "escape":
-            event.stop(); self.dismiss(); return
+            event.stop(); self.app.dismiss_to_bridge(self); return
         items = self._filtered()
         if event.key == "up" and items:
             self._selected = (self._selected-1) % len(items); self._refresh()
@@ -664,7 +664,7 @@ class MissionsScreen(Screen):
     def on_key(self, event):
         """Обрабатывает клавиши: 1-2 для вкладок, Enter/стрелки, A-отмена, D-детали, Escape-выход."""
         if event.key == "escape":
-            event.stop(); self.dismiss(); return
+            event.stop(); self.app.dismiss_to_bridge(self); return
         app = self.app; s = app.ship
 
         if event.key == "1":
@@ -809,7 +809,7 @@ class StationServicesScreen(Screen):
         st = self.station
         app = self.app
         if event.key == "escape":
-            event.stop(); self.dismiss(); return
+            event.stop(); self.app.dismiss_to_bridge(self); return
         if event.key == "1":
             if st: app.push_screen(TradeScreen(st))
         elif event.key == "2" and st and st.modules_for_sale:
@@ -901,7 +901,7 @@ class EngineeringScreen(Screen):
     def on_key(self, event):
         """Обрабатывает клавиши: 1-7 для выбора отсека, 0-9 для установки энергии, Escape для выхода."""
         if event.key == "escape":
-            event.stop(); self.dismiss(); return
+            event.stop(); self.app.dismiss_to_bridge(self); return
 
         # 1-7 select compartment, 0-9 set power for selected
         if event.key in "1234567":
@@ -1076,7 +1076,7 @@ class TacticalScreen(Screen):
     def on_key(self, event):
         """Обрабатывает клавиши: стрелки для навигации, Tab для переключения панели, Enter/F для атаки, Escape для выхода."""
         if event.key == "escape":
-            event.stop(); self.dismiss(); return
+            event.stop(); self.app.dismiss_to_bridge(self); return
 
         weapons = self._get_weapons()
         targets = self._get_targets()
@@ -1596,7 +1596,7 @@ class LandingPrepScreen(Screen):
         """Обрабатывает стрелки для выбора, Enter/D для запуска экспедиции, Escape для отмены."""
         app = self.app
         if event.key == "escape":
-            event.stop(); self.dismiss(); return
+            event.stop(); self.app.dismiss_to_bridge(self); return
 
         s = app.ship
         available = [cm for cm in s.crew_members if not cm.assigned]
@@ -1876,7 +1876,8 @@ class ActionMenu(Screen):
     def on_key(self, event):
         """Обрабатывает клавиши: стрелки для навигации, Enter/буква для выбора, Escape для закрытия."""
         if event.key == "escape":
-            event.stop(); self.dismiss(); return
+            event.stop(); self.app.dismiss_to_bridge(self); return
+        event.stop()
         all_actions = [a for _, acts in self._sections for a in acts]
         if event.key == "up" and all_actions:
             self._selected = (self._selected-1)%len(all_actions); self._refresh_ui()
