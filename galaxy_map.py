@@ -125,6 +125,7 @@ class GalaxyMapApp(App):
         self._interaction_active = False    # Флаг: открыто меню взаимодействия
         self._pending_battle = None         # Ожидающий битвы NPC (ставится из tick)
         self._dismiss_handled_escape = False  # Флаг: Esc уже обработан при закрытии экрана
+        self.world_frozen = False              # Флаг: мир заморожен (игрок в экране)
         self._init_player_position()
 
     def _init_player_position(self):
