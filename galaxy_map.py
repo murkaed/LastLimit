@@ -18,7 +18,7 @@ from textual.widgets import Static, Header, Footer
 from textual.reactive import reactive
 from textual import events
 
-from game_logger import GameLogger
+from game_logger import GameLogger, LogLevel, LogCategory, LogMessage, DetailLevel, CATEGORY_LABEL, CATEGORY_COLOR
 from config import (
     WIDTH, HEIGHT, RESOURCES, RACES, FACTIONS, COMPARTMENTS, CONTRABAND,
     SHIP_HULLS, SHIP_MODULES, UPGRADES, RECIPES, CREW_SPECIALTIES,
@@ -122,6 +122,8 @@ class GalaxyMapApp(App):
         self._politics_timer = 0            # Счётчик ходов до следующего политического события
         self.race_selected = False          # Флаг: раса выбрана
         self._show_race_select = False      # Флаг: показать подменю выбора расы (из главного меню)
+        self.log_category_filter = None     # Фильтр категории лога (None = все, LogCategory = только эта категория)
+        self.log_filter_index = 0           # Индекс текущего фильтра для циклического переключения
         self._prev_state = GameState.START_SCREEN  # Предыдущее состояние (для возврата)
         self._interaction_active = False    # Флаг: открыто меню взаимодействия
         self._pending_battle = None         # Ожидающий битвы NPC (ставится из tick)
@@ -848,7 +850,109 @@ class GalaxyMapApp(App):
             f"└{'─' * 52}┘"
         )
         self.query_one("#info-panel").update(info)
-        self.query_one("#log").update(self.logger.render(8))
+        # ── Log panel with category filter ──
+        self._update_log_display()
+
+    def _log_filter_options(self):
+        """Возвращает список опций для фильтра категорий лога.
+
+        Первый элемент — None (все категории). Далее все LogCategory.
+        """
+        return [None] + list(LogCategory)
+
+    def _cycle_log_filter(self):
+        """Циклически переключает фильтр категории лога."""
+        opts = self._log_filter_options()
+        self.log_filter_index = (self.log_filter_index + 1) % len(opts)
+        self.log_category_filter = opts[self.log_filter_index]
+        self._update_log_display()
+
+    def _log_filter_label(self):
+        """Возвращает текстовую метку текущего фильтра для отображения."""
+        cf = self.log_category_filter
+        if cf is None:
+            return "All"
+        return CATEGORY_LABEL.get(cf, "?")
+
+    def _update_log_display(self):
+        """Обновляет виджет лога с учётом фильтра категорий и Rich-разметки."""
+        # Фильтр через новый API логгера
+        rendered = self.logger.render(n=8, category=self.log_category_filter)
+        filter_bar = f"[bold]Log:[/] [/{self._log_filter_label()}/]  [dim]Press [/][bold]/[/][dim] to filter[/dim]"
+        self.query_one("#log").update(f"{filter_bar}\n{rendered}" if rendered else filter_bar)
+
+    def _handle_log_command(self, p: list[str]):
+        """Обрабатывает команды log: filter, detail, search, clear, show.
+
+        Примеры:
+            log              — последние 10 сообщений (как render)
+            log filter combat — показать только COMBAT
+            log filter all    — все категории
+            log detail high   — уровень детализации HIGH
+            log search <text> — поиск по тексту
+            log clear         — очистить лог
+        """
+        if len(p) >= 2:
+            sub = p[1].lower()
+            if sub == "filter" and len(p) >= 3:
+                f = p[2].lower()
+                # Match by label text
+                found = None
+                for cat in LogCategory:
+                    if CATEGORY_LABEL.get(cat, "").lower() == f or cat.name.lower() == f:
+                        found = cat; break
+                if f == "all":
+                    self.log_category_filter = None
+                    self.logger.system("Log filter: All")
+                elif found is not None:
+                    self.log_category_filter = found
+                    label = CATEGORY_LABEL.get(found, found.name)
+                    self.logger.system(f"Log filter: {label}")
+                else:
+                    self.logger.system(f"Unknown filter '{f}'. Try: all, combat, economy, ship, ...")
+            elif sub == "detail" and len(p) >= 3:
+                d = p[2].lower()
+                mapping = {"low": DetailLevel.LOW, "medium": DetailLevel.MEDIUM,
+                           "high": DetailLevel.HIGH, "debug": DetailLevel.DEBUG}
+                if d in mapping:
+                    self.logger.detail_level = mapping[d]
+                    self.logger.system(f"Log detail: {d}")
+                else:
+                    self.logger.system("detail: low|medium|high|debug")
+            elif sub == "search" and len(p) >= 3:
+                query = " ".join(p[2:])
+                result = self.logger.render_plain(search=query, n=10)
+                if result:
+                    self.logger.system(f"── Search: '{query}' ──")
+                    for line in result.split("\n"):
+                        self.logger.system(line)
+                else:
+                    self.logger.system(f"No matches for '{query}'.")
+            elif sub == "clear":
+                self.logger.clear()
+                self.logger.system("Log cleared.")
+            elif sub == "show":
+                rendered = self.logger.render_plain(n=12)
+                if rendered:
+                    for line in rendered.split("\n"):
+                        self.logger.system(line)
+                else:
+                    self.logger.system("Log empty.")
+            else:
+                rendered = self.logger.render_plain(n=12)
+                if rendered:
+                    for line in rendered.split("\n"):
+                        self.logger.system(line)
+                else:
+                    self.logger.system("Log empty.")
+        else:
+            rendered = self.logger.render_plain(n=12)
+            if rendered:
+                for line in rendered.split("\n"):
+                    self.logger.system(line)
+            else:
+                self.logger.system("Log empty.")
+        self._update_log_display()
 
     # -----------------------------------------------------------------------
     # Logging
@@ -2048,6 +2152,9 @@ class GalaxyMapApp(App):
                     else:
                         self.logger.system(f"Scan failed: {result.info.get('error', 'unknown')}")
 
+        elif c == "log":
+            self._handle_log_command(p)
+
         elif c == "exit":
             self.exit()
 
@@ -2166,6 +2273,8 @@ class GalaxyMapApp(App):
                 return
             self.state = GameState.PAUSED
             self.update_map(); self.update_info()
+        elif event.key == "/":
+            self._cycle_log_filter()
         elif event.key in ("up", "w"):
             self.move_player(0, -1)
         elif event.key in ("down", "s"):
