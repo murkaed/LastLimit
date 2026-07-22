@@ -92,7 +92,7 @@ class TestShipModules:
                 f"{mid} comp '{info['comp']}' not in COMPARTMENTS"
 
     def test_module_count(self):
-        assert len(SHIP_MODULES) == 10
+        assert len(SHIP_MODULES) == 14
 
 
 class TestCompartments:

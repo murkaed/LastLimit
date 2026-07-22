@@ -26,7 +26,7 @@ from config import (
     TILE_WORMHOLE, TILE_ASTEROIDS, TILE_SHIP, TILE_OTHER_SHIP,
     TILE_CURSOR, TILE_TRADER, TILE_PIRATE, DIR_LABELS,
 )
-from models import PlayerShip, Galaxy, TraderShip, PirateShip, CargoHold, NPCShip
+from models import PlayerShip, Galaxy, TraderShip, PirateShip, CargoHold, NPCShip, create_random_ship, create_random_enemy
 import models
 from ui import (
     CommandScreen, CargoScreen, TradeScreen,
@@ -121,6 +121,7 @@ class GalaxyMapApp(App):
         self.cursor_y = HEIGHT // 2         # Позиция курсора в режиме осмотра (Y)
         self._politics_timer = 0            # Счётчик ходов до следующего политического события
         self.race_selected = False          # Флаг: раса выбрана
+        self._show_race_select = False      # Флаг: показать подменю выбора расы (из главного меню)
         self._prev_state = GameState.START_SCREEN  # Предыдущее состояние (для возврата)
         self._interaction_active = False    # Флаг: открыто меню взаимодействия
         self._pending_battle = None         # Ожидающий битвы NPC (ставится из tick)
@@ -156,7 +157,8 @@ class GalaxyMapApp(App):
         """Обрабатывает выбор расы игроком.
 
         Принимает строку (цифру или название расы) и устанавливает
-        соответствующую расу корабля. Переводит игру в режим PLAYING.
+        соответствующую расу корабля. Применяет расовые бонусы к кораблю.
+        Переводит игру в режим PLAYING.
 
         Parameters
         ----------
@@ -168,18 +170,23 @@ class GalaxyMapApp(App):
         None
         """
         c = choice.lower().strip()
-        if c in ("1", "human", ""):
-            self.ship.race = "human"
-        elif c in ("2", "mutant"):
-            self.ship.race = "mutant"
-        elif c in ("3", "xenos_bio", "xenos"):
-            self.ship.race = "xenos_bio"
-        elif c in ("4", "machine_cult", "machine"):
-            self.ship.race = "machine_cult"
-        elif c in ("5", "voidborn", "void"):
-            self.ship.race = "voidborn"
-        self.logger.system(f"Race: {RACES.get(self.ship.race, {}).get('name', 'Human')}.")
+        race_map = {
+            "1": "human", "human": "human",
+            "2": "mutant", "mutant": "mutant",
+            "3": "xenos_bio", "xenos": "xenos_bio",
+            "4": "machine_cult", "machine": "machine_cult",
+            "5": "voidborn", "void": "voidborn",
+            "": "human",
+        }
+        race_id = race_map.get(c)
+        if not race_id:
+            return
+        self.ship.race = race_id
+        self.ship.apply_race_bonus()
+        race_name = RACES.get(race_id, {}).get("name", race_id)
+        self.logger.system(f"Race: {race_name}.")
         self.race_selected = True
+        self._show_race_select = False
         self.state = GameState.PLAYING
         self.update_map()
         self.update_info()
@@ -211,6 +218,7 @@ class GalaxyMapApp(App):
         self.death_cause = None
         self.interaction_actions = []
         self.race_selected = False
+        self._show_race_select = False
         self._pending_battle = None
         self._dismiss_handled_escape = False
         self.world_frozen = False
@@ -263,41 +271,66 @@ class GalaxyMapApp(App):
     # -----------------------------------------------------------------------
 
     def render_start_screen(self):
-        """Отрисовывает стартовый экран (выбор расы или титульный экран).
+        """Отрисовывает главное меню игры.
 
-        В зависимости от self.state показывает либо меню выбора расы,
-        либо стартовый экран с названием игры и подсказками по управлению.
-
-        Parameters
-        ----------
-        Нет параметров (использует self.state, self.ship.race).
-
-        Returns
-        -------
-        None — обновляет виджет "#map" напрямую.
+        Показывает:
+          - Главное меню с опциями: New Game, Quick Battle, Help, Quit
+          - Подменю выбора расы (при _show_race_select=True) с описанием бонусов
         """
-        if self.state == GameState.RACE_SELECT:
-            self.query_one("#map").update("\n".join([
-                "", "",
-                "  ┏━ CHOOSE RACE ━━━━━━━━━━━━━━━┓",
-                "  ┃ 1 Human    2 Mutant         ┃",
-                "  ┃ 3 Xenos Bio  4 Machine      ┃",
-                "  ┃ 5 Voidborn                  ┃",
-                "  ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛", "",
-                "  Press 1-5 or Enter for Human",
-            ]))
-            return
-        self.query_one("#map").update("\n".join([
-            "", "",
-            "  ┏━ GALAXY MAP ━━━━━━━━━━━━━━━━━━━━━━━━┓",
-            "  ┃ In the grim darkness of the far     ┃",
-            "  ┃ future, there is only war.          ┃",
-            "  ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛",
-            f"  Race: {RACES.get(self.ship.race, {}).get('name', 'Human')}", "",
-            f"  WASD Move  E Interact  I Inspect  L Land  H Help",
-            f"  N News  F1 Bridge (scanner, missions)  ~ Console", "",
-            "  Press any key to start...",
-        ]))
+        if self._show_race_select:
+            # ── Подменю выбора расы ──
+            lines = ["", ""]
+            lines.append("  ┏━ CHOOSE YOUR RACE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓")
+            cfg = RACES  # import is at module level
+            race_keys = ["human", "mutant", "xenos_bio", "machine_cult", "voidborn"]
+            for i, rid in enumerate(race_keys, 1):
+                rc = cfg.get(rid, {})
+                name = rc.get("name", rid)
+                desc = rc.get("desc", "")
+                bonuses = rc.get("bonus", {})
+                penalties = rc.get("penalty", {})
+                # Форматируем бонусы
+                parts = []
+                for k, v in bonuses.items():
+                    if k == "max_hull":
+                        parts.append(f"+{v} hull")
+                    else:
+                        parts.append(f"+{v} {k}")
+                for k, v in penalties.items():
+                    if k == "max_hull":
+                        parts.append(f"{v} hull")
+                    else:
+                        parts.append(f"{v} {k}")
+                bonus_str = ", ".join(parts) if parts else "—"
+                lines.append(f"  ┃                                                         ┃")
+                lines.append(f"  ┃  [{i}] {name:<12}                                   ┃")
+                lines.append(f"  ┃      {desc:<55}┃")
+                lines.append(f"  ┃      [{bonus_str:<53}┃")
+            lines.append(f"  ┃                                                         ┃")
+            lines.append(f"  ┃  [0] Back                          [Enter] Human        ┃")
+            lines.append(f"  ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛")
+        else:
+            # ── Главное меню ──
+            lines = ["", "",
+                "        ██╗     █████╗ ███████╗████████╗    ██╗     ██╗███╗   ███╗██╗████████╗",
+                "        ██║    ██╔══██╗██╔════╝╚══██╔══╝    ██║     ██║████╗ ████║██║╚══██╔══╝",
+                "        ██║    ███████║███████╗   ██║       ██║     ██║██╔████╔██║██║   ██║   ",
+                "        ██║    ██╔══██║╚════██║   ██║       ██║     ██║██║╚██╔╝██║██║   ██║   ",
+                "        ███████╗██║  ██║███████║   ██║       ███████╗██║██║ ╚═╝ ██║██║   ██║   ",
+                "        ╚══════╝╚═╝  ╚═╝╚══════╝   ╚═╝       ╚══════╝╚═╝╚═╝     ╚═╝╚═╝   ╚═╝   ",
+                "",
+                "              In the grim darkness of the far future, there is only war.",
+                "",
+                "  ╔══════════════════════════════════════════════════════════════════╗",
+                "  ║                                                                  ║",
+                "  ║              [N] New Game                                        ║",
+                "  ║              [B] Quick Battle  (Training / Debug)                ║",
+                "  ║              [H] Help                                            ║",
+                "  ║              [Q] Quit                                            ║",
+                "  ║                                                                  ║",
+                "  ╚══════════════════════════════════════════════════════════════════╝",
+            ]
+        self.query_one("#map").update("\n".join(lines))
 
     def render_help_screen(self):
         """Формирует текст экрана справки с подсказками по управлению.
@@ -748,7 +781,10 @@ class GalaxyMapApp(App):
         None
         """
         if self.state in (GameState.RACE_SELECT, GameState.START_SCREEN):
-            self.query_one("#info-panel").update("H=Help  N=News  F1=Bridge")
+            if self._show_race_select:
+                self.query_one("#info-panel").update("Pick a race. 1-5 or Enter. 0=Back")
+            else:
+                self.query_one("#info-panel").update("N=New Game  B=Quick Battle  H=Help  Q=Quit")
             self.query_one("#log").update("")
             return
         if self.state == GameState.HELP:
@@ -2040,25 +2076,34 @@ class GalaxyMapApp(App):
         -------
         None
         """
-        if self.state == GameState.RACE_SELECT:
-            if event.key in ("1", "2", "3", "4", "5"):
-                self.select_race(event.key)
-            elif event.key in ("enter", " "):
-                self.select_race("")
+        if self.state in (GameState.RACE_SELECT, GameState.START_SCREEN):
+            if self._show_race_select:
+                # Подменю выбора расы
+                if event.key in ("1", "2", "3", "4", "5"):
+                    self.select_race(event.key)
+                elif event.key in ("enter", " "):
+                    self.select_race("")
+                elif event.key in ("escape", "0"):
+                    self._show_race_select = False
+                    self.update_map(); self.update_info()
+            else:
+                # Главное меню
+                if event.key in ("n", "N"):
+                    self._show_race_select = True
+                    self.update_map(); self.update_info(); return
+                if event.key in ("b", "B"):
+                    player_ship = create_random_ship(is_player=True)
+                    enemy_ship = create_random_enemy()
+                    ctrl = BattleController(player_ship, enemy_ship, app=None)
+                    self.push_screen(BattleScreen(ctrl, quick_battle=True))
+                    return
+                if event.key in ("h", "H"):
+                    self._prev_state = self.state
+                    self.state = GameState.HELP
+                    self.update_map(); self.update_info(); return
+                if event.key in ("q", "Q"):
+                    self.exit()
             return
-
-        if self.state == GameState.START_SCREEN:
-            if event.key == "h":
-                self._prev_state = GameState.START_SCREEN
-                self.state = GameState.HELP
-                self.update_map(); self.update_info(); return
-            if event.key == "n":
-                self._prev_state = GameState.START_SCREEN
-                self.state = GameState.NEWS
-                self.update_map(); self.update_info(); return
-            self.state = GameState.PLAYING
-            self.logger.system("Journey begins…")
-            self.update_map(); self.update_info(); return
 
         if self.state == GameState.HELP:
             self.state = self._prev_state

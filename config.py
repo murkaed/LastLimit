@@ -46,12 +46,37 @@ RESOURCES = {
 }  # все типы ресурсов: категория (сырьё / переработанное / продвинутое / особое / расходник) и базовая цена
 
 RACES = {
-    "human":       {"name": "Human"},
-    "mutant":      {"name": "Mutant"},
-    "xenos_bio":   {"name": "Xenos Bio"},
-    "machine_cult":{"name": "Machine"},
-    "voidborn":    {"name": "Voidborn"},
-}  # доступные расы персонажей
+    "human": {
+        "name": "Human",
+        "desc": "Balanced crew, all-rounder",
+        "bonus": {"accuracy": 5, "evasion": 3, "shield_regen": 1},
+        "penalty": {},
+    },
+    "mutant": {
+        "name": "Mutant",
+        "desc": "Brute force — tough hull, strong weapons, clumsy",
+        "bonus": {"max_hull": 25, "hull_bonus": 10, "damage": 8, "power_bonus": 3},
+        "penalty": {"accuracy": -10, "evasion": -5},
+    },
+    "xenos_bio": {
+        "name": "Xenos Bio",
+        "desc": "Agile — fast, evasive, sharp sensors, fragile",
+        "bonus": {"evasion": 8, "speed": 1, "sensor_range": 3},
+        "penalty": {"max_hull": -15, "damage": -3},
+    },
+    "machine_cult": {
+        "name": "Machine",
+        "desc": "Precise — surgical accuracy, efficient reactors, sluggish",
+        "bonus": {"accuracy": 10, "power_bonus": 5, "shield_cap": 10},
+        "penalty": {"evasion": -5, "speed": -1},
+    },
+    "voidborn": {
+        "name": "Voidborn",
+        "desc": "Void-native — tough shields, natural regen, slow aiming",
+        "bonus": {"shield_cap": 15, "shield_regen": 3, "evasion": 5},
+        "penalty": {"speed": -1, "accuracy": -5},
+    },
+}  # доступные расы персонажей с бонусами к характеристикам
 
 RELIGIONS = {
     "orthodox_church": {"name": "Orthodox Church"},
@@ -77,30 +102,168 @@ CONTRABAND = {
 }  # список контрабандных ресурсов для каждой фракции
 
 SHIP_MODULES = {
+    # ── Реакторы ──
     "fusion_reactor":{"name":"Fusion Reactor","comp":"reactor","energy":0,"power":12,
                       "cost":800,"durability":100,"desc":"Generates 12 power"},
+    # ── Двигатели ──
     "ion_drive":{"name":"Ion Drive","comp":"engine","energy":2,"speed":1,"evasion":10,
                  "cost":600,"durability":80,"desc":"Speed +1, evasion +10"},
-    "laser_turret":{"name":"Laser Turret","comp":"weapon","energy":3,"damage":15,"accuracy":80,
-                    "cost":500,"durability":60,"range":3,"desc":"Damage 15, accuracy 80"},
-    "deflector_shield":{"name":"Deflector Shield","comp":"shield","energy":4,"shield_cap":30,
-                        "shield_regen":2,"cost":700,"durability":90,"desc":"Shield +30, regen +2"},
-    "long_range_scanner":{"name":"Long Range Scanner","comp":"sensor","energy":2,"sensor_range":5,
-                          "cost":400,"durability":50,"desc":"Scan range +5"},
-    "cargo_expander":{"name":"Cargo Expander","comp":"cargo","energy":0,"cargo_bonus":25,
-                      "cost":300,"durability":40,"desc":"Cargo +25"},
-    "life_support":{"name":"Life Support","comp":"life_support","energy":1,"crew_efficiency":10,
-                    "cost":200,"durability":30,"desc":"Crew efficiency +10%"},
-    "plasma_cannon":{"name":"Plasma Cannon","comp":"weapon","energy":5,"damage":30,"accuracy":60,
-                     "cost":900,"durability":70,"range":4,"desc":"Damage 30, accuracy 60"},
-    "armor_plating":{"name":"Armor Plating","comp":"shield","energy":0,"hull_bonus":20,
-                     "cost":500,"durability":100,"desc":"+20 hull"},
     "warp_drive":{"name":"Warp Drive","comp":"engine","energy":3,"speed":2,"evasion":5,
                   "cost":1200,"durability":60,"desc":"Speed +2, evasion +5"},
+    # ── Лазеры ──
+    "laser_turret":{"name":"Laser Turret","comp":"weapon","weapon_class":"laser","damage_type":"energy",
+                    "energy":3,"damage":15,"accuracy":80,
+                    "cost":500,"durability":60,"range":3,"desc":"Laser — high accuracy, good vs shields"},
+    # ── Плазма ──
+    "plasma_cannon":{"name":"Plasma Cannon","comp":"weapon","weapon_class":"plasma","damage_type":"energy",
+                     "energy":5,"damage":30,"accuracy":60,
+                     "cost":900,"durability":70,"range":4,"desc":"Plasma — heavy damage, partial armor ignore"},
+    # ── Кинетика ──
+    "kinetic_cannon":{"name":"Kinetic Cannon","comp":"weapon","weapon_class":"kinetic","damage_type":"kinetic",
+                      "energy":1,"damage":22,"accuracy":65,
+                      "cost":700,"durability":80,"range":3,
+                      "ammo_capacity":20,
+                      "desc":"Kinetic — needs ammo, high hull damage"},
+    # ── Ракеты ──
+    "missile_launcher":{"name":"Missile Launcher","comp":"weapon","weapon_class":"missile","damage_type":"explosive",
+                        "energy":2,"damage":40,"accuracy":90,
+                        "cost":1200,"durability":50,"range":5,
+                        "ammo_capacity":6,
+                        "desc":"Missile — homing, very high damage, expensive ammo"},
+    # ── Разрушитель ──
+    "disruptor":{"name":"Disruptor","comp":"weapon","weapon_class":"disruptor","damage_type":"disruption",
+                 "energy":4,"damage":10,"accuracy":75,
+                 "cost":1100,"durability":60,"range":3,"desc":"Disruptor — bypasses shields, damages modules"},
+    # ── Ионное ──
+    "ion_cannon":{"name":"Ion Cannon","comp":"weapon","weapon_class":"ion","damage_type":"ion",
+                  "energy":4,"damage":5,"accuracy":70,
+                  "cost":1000,"durability":55,"range":3,
+                  "ammo_capacity":12,
+                  "desc":"Ion — drains enemy energy, disables modules"},
+    # ── Щиты ──
+    "deflector_shield":{"name":"Deflector Shield","comp":"shield","energy":4,"shield_cap":30,
+                        "shield_regen":2,"cost":700,"durability":90,"desc":"Shield +30, regen +2"},
+    "armor_plating":{"name":"Armor Plating","comp":"shield","energy":0,"hull_bonus":20,
+                     "cost":500,"durability":100,"desc":"+20 hull"},
+    # ── Сенсоры ──
+    "long_range_scanner":{"name":"Long Range Scanner","comp":"sensor","energy":2,"sensor_range":5,
+                          "cost":400,"durability":50,"desc":"Scan range +5"},
+    # ── Груз ──
+    "cargo_expander":{"name":"Cargo Expander","comp":"cargo","energy":0,"cargo_bonus":25,
+                      "cost":300,"durability":40,"desc":"Cargo +25"},
+    # ── Жизнеобеспечение ──
+    "life_support":{"name":"Life Support","comp":"life_support","energy":1,"crew_efficiency":10,
+                    "cost":200,"durability":30,"desc":"Crew efficiency +10%"},
 }  # все модули корабля: отсек, потребление энергии, характеристики, стоимость
 
 COMPARTMENTS = ["reactor", "engine", "weapon", "shield", "sensor", "life_support", "cargo"]
 # список типов отсеков корабля
+
+# ---------------------------------------------------------------------------
+# Damage types
+# ---------------------------------------------------------------------------
+
+DAMAGE_TYPES = {
+    "energy":     {"name": "Energy"},
+    "kinetic":    {"name": "Kinetic"},
+    "explosive":  {"name": "Explosive"},
+    "disruption": {"name": "Disruption"},
+    "ion":        {"name": "Ion"},
+}  # типы урона для оружия и боеприпасов
+
+# ---------------------------------------------------------------------------
+# Weapon classes
+# ---------------------------------------------------------------------------
+
+WEAPON_CLASSES = {
+    "laser":     {"name": "Laser",     "ammo_slots": 0, "can_change_ammo": False,
+                  "desc": "High accuracy, energy-efficient, good vs shields"},
+    "plasma":    {"name": "Plasma",    "ammo_slots": 0, "can_change_ammo": False,
+                  "desc": "High damage, ignores partial armor, costly energy"},
+    "kinetic":   {"name": "Kinetic",   "ammo_slots": 1, "can_change_ammo": True,
+                  "desc": "Needs ammo, high hull damage, poor vs shields"},
+    "missile":   {"name": "Missile",   "ammo_slots": 1, "can_change_ammo": True,
+                  "desc": "Homing, extreme damage, expensive ammo, long cooldown"},
+    "disruptor": {"name": "Disruptor", "ammo_slots": 0, "can_change_ammo": False,
+                  "desc": "Bypasses shields, damages modules directly"},
+    "ion":       {"name": "Ion",       "ammo_slots": 1, "can_change_ammo": True,
+                  "desc": "Drains energy, disables modules, minimal hull damage"},
+}  # классы оружия: тип, возможность смены боеприпасов
+
+# ---------------------------------------------------------------------------
+# Ammo types
+# ---------------------------------------------------------------------------
+
+AMMO_TYPES = {
+    "slug": {
+        "name": "Slug",
+        "damage_type": "kinetic",
+        "damage_mod": 0,
+        "accuracy_mod": 0,
+        "desc": "Cheap kinetic round",
+    },
+    "armor_piercing": {
+        "name": "AP Round",
+        "damage_type": "kinetic",
+        "damage_mod": -3,
+        "accuracy_mod": -5,
+        "armor_pen": 10,
+        "desc": "Ignores 10 armor",
+    },
+    "high_explosive": {
+        "name": "HE Warhead",
+        "damage_type": "explosive",
+        "damage_mod": 10,
+        "accuracy_mod": 0,
+        "desc": "For missiles — massive boom",
+    },
+    "emp_charge": {
+        "name": "EMP Charge",
+        "damage_type": "ion",
+        "damage_mod": -2,
+        "accuracy_mod": 0,
+        "energy_drain": 15,
+        "desc": "Drains 15 enemy energy",
+    },
+    "plasma_cartridge": {
+        "name": "Plasma Cell",
+        "damage_type": "energy",
+        "damage_mod": 5,
+        "accuracy_mod": -5,
+        "desc": "Enhanced plasma charge",
+    },
+}  # типы боеприпасов: модификаторы урона/точности, тип урона, особые свойства
+
+# ---------------------------------------------------------------------------
+# Default resistances
+# ---------------------------------------------------------------------------
+
+# Сопротивление щита (% поглощения) по типам урона
+SHIELD_RESIST = {
+    "energy":     50,   # щиты держат энергетический урон
+    "kinetic":    20,   # кинетика прошивает щиты
+    "explosive":  30,
+    "disruption": 10,   # разрушитель почти игнорирует щиты
+    "ion":        40,
+}  # % урона, поглощаемый щитами (остаток идёт на щиты, не на корпус)
+
+# Сопротивление брони/корпуса (% снижения) по типам урона
+ARMOR_RESIST = {
+    "energy":     30,   # броня хорошо держит энергетику
+    "kinetic":    40,   # броня лучше всего держит кинетику
+    "explosive":  20,   # взрывчатка эффективна против брони
+    "disruption": 10,   # разрушитель игнорирует броню
+    "ion":        50,   # ионка почти бесполезна против брони
+}  # % урона, поглощаемый бронёй при попадании в корпус
+
+# Модификатор урона по отсекам (type → множитель)
+COMP_DAMAGE_MOD = {
+    "energy":     {"shield": 1.3, "weapon": 1.0, "reactor": 1.0, "engine": 1.0, "sensor": 1.0},
+    "kinetic":    {"shield": 0.6, "weapon": 1.2, "reactor": 1.0, "engine": 0.8, "sensor": 0.8},
+    "explosive":  {"shield": 0.8, "weapon": 1.3, "reactor": 1.5, "engine": 1.2, "sensor": 1.2},
+    "disruption": {"shield": 0.0, "weapon": 1.5, "reactor": 1.3, "engine": 1.3, "sensor": 1.8},
+    "ion":        {"shield": 0.5, "weapon": 1.0, "reactor": 1.8, "engine": 1.5, "sensor": 0.5},
+}  # множители урона по отсекам для каждого типа урона (× урон после резистов)
 
 # ---------------------------------------------------------------------------
 # Ship hulls
@@ -179,6 +342,66 @@ RECIPES = {
         "inputs": {"metal": 3, "electronics": 3, "silicon": 1},
         "craft_time": 7,
         "desc": "Basic engine module",
+    },
+    "kinetic_cannon": {
+        "name": "Kinetic Cannon (Mk1)",
+        "inputs": {"metal": 6, "electronics": 2, "silicon": 2},
+        "craft_time": 9,
+        "desc": "Kinetic weapon — needs ammo",
+    },
+    "missile_launcher": {
+        "name": "Missile Launcher (Mk1)",
+        "inputs": {"metal": 8, "electronics": 5, "silicon": 3, "shield_mod": 1},
+        "craft_time": 12,
+        "desc": "Missile weapon — extreme damage",
+    },
+    "disruptor": {
+        "name": "Disruptor (Mk1)",
+        "inputs": {"metal": 5, "electronics": 6, "shield_mod": 2},
+        "craft_time": 11,
+        "desc": "Disruptor — bypasses shields",
+    },
+    "ion_cannon": {
+        "name": "Ion Cannon (Mk1)",
+        "inputs": {"metal": 4, "electronics": 4, "silicon": 4},
+        "craft_time": 10,
+        "desc": "Ion cannon — drains energy",
+    },
+    # ── Боеприпасы ──
+    "slug": {
+        "name": "Slug ×10",
+        "inputs": {"metal": 1},
+        "craft_time": 1,
+        "yield": 10,
+        "desc": "Ammo: cheap kinetic rounds",
+    },
+    "armor_piercing": {
+        "name": "AP Round ×5",
+        "inputs": {"metal": 2, "electronics": 1},
+        "craft_time": 2,
+        "yield": 5,
+        "desc": "Ammo: armor-piercing kinetic rounds",
+    },
+    "high_explosive": {
+        "name": "HE Warhead ×3",
+        "inputs": {"metal": 3, "electronics": 2, "silicon": 1},
+        "craft_time": 3,
+        "yield": 3,
+        "desc": "Ammo: high-explosive missile warhead",
+    },
+    "emp_charge": {
+        "name": "EMP Charge ×3",
+        "inputs": {"electronics": 3, "shield_mod": 1},
+        "craft_time": 4,
+        "yield": 3,
+        "desc": "Ammo: electromagnetic pulse charge",
+    },
+    "plasma_cartridge": {
+        "name": "Plasma Cell ×5",
+        "inputs": {"metal": 1, "silicon": 2, "fuel_cell": 1},
+        "craft_time": 2,
+        "yield": 5,
+        "desc": "Ammo: enhanced plasma cell",
     },
 }  # рецепты крафта: входные ресурсы и время изготовления
 

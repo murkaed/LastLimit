@@ -21,7 +21,7 @@ import random
 from textual.screen import Screen
 from textual.widgets import Static
 
-from config import RESOURCES, COMPARTMENTS
+from config import RESOURCES, COMPARTMENTS, SHIELD_RESIST, ARMOR_RESIST, COMP_DAMAGE_MOD, AMMO_TYPES, WEAPON_CLASSES, DAMAGE_TYPES
 
 # ---------------------------------------------------------------------------
 # Расходники, доступные в бою (ремонт корпуса, топливо для энергии, усиление щита)
@@ -95,12 +95,14 @@ def _build_enemy_compartments(is_pirate):
     if is_pirate:
         comps["reactor"]["modules"].append({"name":"Scavenged Reactor","dur":40,"max_dur":40,"active":True,"armor":5})
         comps["engine"]["modules"].append({"name":"Booster Drive","dur":30,"max_dur":30,"active":True,"armor":3,"evasion":5})
-        comps["weapon"]["modules"].append({"name":"Pirate Laser","dur":25,"max_dur":25,"active":True,"armor":5,"damage":8,"accuracy":60})
+        comps["weapon"]["modules"].append({"name":"Pirate Laser","dur":25,"max_dur":25,"active":True,"armor":5,"damage":8,"accuracy":60,
+                                            "weapon_class":"laser","damage_type":"energy"})
         comps["shield"]["modules"].append({"name":"Scrap Shield","dur":30,"max_dur":30,"active":True,"armor":8,"shield_cap":10,"shield_regen":1})
     else:
         comps["reactor"]["modules"].append({"name":"Civilian Reactor","dur":50,"max_dur":50,"active":True,"armor":5})
         comps["engine"]["modules"].append({"name":"Civilian Drive","dur":40,"max_dur":40,"active":True,"armor":5,"evasion":2})
-        comps["weapon"]["modules"].append({"name":"Light Turret","dur":20,"max_dur":20,"active":True,"armor":5,"damage":5,"accuracy":50})
+        comps["weapon"]["modules"].append({"name":"Light Turret","dur":20,"max_dur":20,"active":True,"armor":5,"damage":5,"accuracy":50,
+                                            "weapon_class":"laser","damage_type":"energy"})
         comps["shield"]["modules"].append({"name":"Basic Shield","dur":35,"max_dur":35,"active":True,"armor":5,"shield_cap":15,"shield_regen":2})
     # Общие для всех NPC отсеки
     comps["sensor"]["modules"].append({"name":"Scanner","dur":20,"max_dur":20,"active":True,"armor":3})
@@ -144,11 +146,122 @@ def _compartment_status_str(comp, comp_data, width=10):
     total_dur = sum(m.get("dur", 0) for m in alive)
     max_dur = sum(m.get("max_dur", 1) for m in comp_data["modules"] if m.get("active", True))
     if not alive or total_dur <= 0:
-        return f"{comp:<8} [☠DESTROYED]"
+        return f"{comp:<9}[☠DESTROYED]"
     pct = int(total_dur / max(1, max_dur) * 100)
     bar = _bar_s(pct, 100, width)
-    return f"{comp:<8} {bar}"
+    return f"{comp:<9}{bar}"
 
+
+def _player_comp_status_str(comp_name, comp_data, width=10):
+    """Формирует строку состояния отсека ИГРОКА.
+
+    ShipModule хранит состояние в атрибутах .active, .durability, .max_durability.
+    Если все модули отсека уничтожены — помечает отсек как [☠DESTROYED].
+
+    Параметры:
+        comp_name: название отсека
+        comp_data: словарь отсека {"modules": [ShipModule, ...], ...}
+        width: ширина полосы прочности
+
+    Возвращает:
+        отформатированную строку состояния
+    """
+    modules = comp_data.get("modules", [])
+    alive = [m for m in modules if m.active and not m.is_broken()]
+    total_dur = sum(m.durability for m in alive)
+    max_dur = sum(m.max_durability for m in modules if not m.is_broken() or m.durability > 0)
+    if not alive or total_dur <= 0:
+        return f"{comp_name:<9}[☠DESTROYED]"
+    pct = int(total_dur / max(1, max_dur) * 100)
+    bar = _bar_s(pct, 100, width)
+    return f"{comp_name:<9}{bar}"
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Damage calculation helpers
+# ═══════════════════════════════════════════════════════════════════════
+
+def _apply_shield_resist(damage, damage_type, shield_hp):
+    """Применяет сопротивление щита к урону определённого типа.
+
+    Щиты поглощают часть урона в зависимости от SHIELD_RESIST[damage_type].
+    Остаток урона проходит к корпусу/модулям.
+
+    Параметры:
+        damage: исходный урон
+        damage_type: тип урона (str)
+        shield_hp: текущая прочность щита
+
+    Возвращает:
+        (damage_to_shield, damage_to_hull) — сколько урона ушло на щиты и на корпус
+    """
+    if shield_hp <= 0:
+        return (0, damage)
+    resist_pct = SHIELD_RESIST.get(damage_type, 30) / 100.0
+    # Часть урона поглощается щитами
+    to_shield = min(shield_hp, int(damage * (1 - resist_pct)))
+    # Остаток проходит к корпусу
+    remaining = max(0, damage - to_shield)
+    return (to_shield, remaining)
+
+
+def _apply_armor_resist(damage, damage_type, armor=0, armor_pen=0):
+    """Применяет сопротивление брони к урону определённого типа.
+
+    Args:
+        damage: урон после щитов
+        damage_type: тип урона
+        armor: значение брони цели
+        armor_pen: пробитие брони (снижает эффективную броню)
+
+    Returns:
+        урон после резиста брони
+    """
+    resist_pct = ARMOR_RESIST.get(damage_type, 20) / 100.0
+    effective_armor = max(0, armor - armor_pen)
+    # Броня снижает урон: resist_pct + armour_factor
+    armor_factor = effective_armor / 100.0  # 5 armor = 5% reduction
+    total_resist = min(0.8, resist_pct + armor_factor)
+    return max(1, int(damage * (1 - total_resist)))
+
+
+def _apply_comp_damage_mod(damage, damage_type, target_comp):
+    """Применяет модификатор урона по отсеку для данного типа урона.
+
+    Args:
+        damage: урон после резистов
+        damage_type: тип урона
+        target_comp: название целевого отсека
+
+    Returns:
+        модифицированный урон
+    """
+    comp_mods = COMP_DAMAGE_MOD.get(damage_type, {})
+    mod = comp_mods.get(target_comp, 1.0)
+    return max(1, int(damage * mod))
+
+
+def _get_weapon_damage_type(weapon, loaded_ammo_type=None):
+    """Определяет фактический тип урона оружия с учётом загруженных боеприпасов.
+
+    Args:
+        weapon: объект оружия (ShipModule или dict)
+        loaded_ammo_type: идентификатор загруженных боеприпасов (или None)
+
+    Returns:
+        тип урона (str)
+    """
+    if loaded_ammo_type and loaded_ammo_type in AMMO_TYPES:
+        return AMMO_TYPES[loaded_ammo_type].get("damage_type",
+                                                 weapon.get("damage_type", "energy")
+                                                 if isinstance(weapon, dict)
+                                                 else weapon.damage_type)
+    if isinstance(weapon, dict):
+        return weapon.get("damage_type", "energy")
+    return weapon.damage_type
+
+
+# ═══════════════════════════════════════════════════════════════════════
 
 class BattleController:
     """Управляет логикой пошагового боя.
@@ -159,18 +272,18 @@ class BattleController:
     начисление награды при победе.
     """
 
-    def __init__(self, player_ship, enemy_npc, app, selected_weapon_idx=0):
+    def __init__(self, player_ship, enemy_npc, app=None, selected_weapon_idx=0):
         """Инициализирует контроллер боя.
 
         Параметры:
             player_ship: объект корабля игрока
             enemy_npc: объект корабля противника
-            app: ссылка на главное приложение (для обратного вызова)
+            app: ссылка на главное приложение (для обратного вызова, опционально)
             selected_weapon_idx: индекс выбранного оружия (по умолчанию 0)
         """
         self.player = player_ship  # корабль игрока
         self.enemy = enemy_npc  # корабль противника
-        self.app = app  # главное приложение
+        self.app = app  # главное приложение (может быть None для быстрого боя)
         self.is_pirate = type(enemy_npc).__name__ == "PirateShip"  # тип врага: пират или торговец
         self.enemy_comps = _build_enemy_compartments(self.is_pirate)  # отсеки вражеского корабля
         self.enemy_max_hull = enemy_npc.max_hull  # максимальная прочность корпуса врага
@@ -189,9 +302,68 @@ class BattleController:
         """Возвращает список активных (не сломанных) модулей оружия игрока."""
         return [m for m in self.player.compartments["weapon"]["modules"] if m.active and not m.is_broken()]
 
+    # ── Состояние отсеков игрока ──────────────────────────────────────
+
+    def _player_comp_destroyed(self, comp_name):
+        """Проверяет, уничтожены ли ВСЕ модули в указанном отсеке игрока.
+
+        Отсек считается уничтоженным, если ни один модуль в нём
+        не активен и не повреждён (is_broken).
+
+        Параметры:
+            comp_name: название отсека (например, "reactor", "engine")
+
+        Возвращает:
+            True — все модули в отсеке мертвы, False — есть хотя бы один живой модуль
+        """
+        modules = self.player.compartments.get(comp_name, {}).get("modules", [])
+        if not modules:
+            return True  # пустой отсек = уничтожен
+        return not any(m.active and not m.is_broken() for m in modules)
+
+    def _player_comp_statuses(self):
+        """Возвращает словарь {comp: destroyed} для всех отсеков игрока.
+
+        Используется в отрисовке UI для визуальной индикации.
+        """
+        return {c: self._player_comp_destroyed(c) for c in COMPARTMENTS}
+
     def _player_evasion(self):
-        """Возвращает показатель уклонения корабля игрока."""
-        return self.player.get_effective_stats().get("evasion", 0)
+        """Возвращает показатель уклонения корабля игрока.
+
+        Учитывает:
+        - базовое уклонение от модулей, экипажа и расы
+        - штраф COMP_EFFECTS за каждый уничтоженный отсек
+        - engine уничтожен → уклонение = 0
+        """
+        ev = self.player.get_effective_stats().get("evasion", 0)
+        for c in COMPARTMENTS:
+            if self._player_comp_destroyed(c):
+                ev += COMP_EFFECTS.get(c, {}).get("evasion", 0)
+        if self._player_comp_destroyed("engine"):
+            ev = 0
+        return max(0, ev)
+
+    def _player_accuracy_bonus(self):
+        """Возвращает суммарный бонус/штраф к точности от уничтоженных отсеков."""
+        bonus = 0
+        for c in COMPARTMENTS:
+            if self._player_comp_destroyed(c):
+                bonus += COMP_EFFECTS.get(c, {}).get("accuracy", 0)
+        return bonus
+
+    def _player_has_working_engine(self):
+        """Проверяет, работает ли хотя бы один модуль двигателя."""
+        return not self._player_comp_destroyed("engine")
+
+    def _player_can_skill(self, skill_id):
+        """Проверяет, доступен ли навык с учётом состояния отсеков.
+
+        precise_shot требует рабочий сенсор.
+        """
+        if skill_id == "precise_shot" and self._player_comp_destroyed("sensor"):
+            return False
+        return True
 
     def _crew_bonus(self, key):
         """Возвращает бонус экипажа по указанной характеристике.
@@ -258,6 +430,9 @@ class BattleController:
         reactor_power = self.player.total_power_generated()
         eng_bonus = self._crew_bonus("power_bonus") // 10
         regen = max(5, reactor_power // 2) + eng_bonus
+        # Реактор уничтожен — реген энергии падает вдвое
+        if self._player_comp_destroyed("reactor"):
+            regen = max(1, regen // 2)
         old = self.player_energy
         self.player_energy = min(self.player_max_energy, self.player_energy + regen)
         if self.player_energy > old:
@@ -286,11 +461,33 @@ class BattleController:
         accuracy = weapon.stats.get("accuracy", 70)
         weapon_name = weapon.name
         en_cost = weapon.energy_consumption
+        # Определяем класс оружия и тип урона
+        weapon_class = weapon.weapon_class or "laser"
+        damage_type = _get_weapon_damage_type(weapon, weapon.loaded_ammo_type if hasattr(weapon, 'loaded_ammo_type') else None)
+        # Проверка боеприпасов
+        if weapon.needs_ammo() and not weapon.has_ammo():
+            self.add_log(f"✗ {weapon_name} out of ammo! Reload required.")
+            self._next_turn(); return
         # Проверка: хватает ли энергии на выстрел
         if self.player_energy < en_cost:
             self.add_log(f"⚡ Need {en_cost}e for {weapon_name} (have {self.player_energy}).")
             self._next_turn(); return
         self.player_energy -= en_cost
+        # Расход боеприпаса
+        ammo_used = False
+        if weapon.needs_ammo():
+            weapon.consume_ammo(1)
+            ammo_used = True
+            # Боеприпас может менять damage_type
+            if weapon.loaded_ammo_type and weapon.loaded_ammo_type in AMMO_TYPES:
+                ammo_info = AMMO_TYPES[weapon.loaded_ammo_type]
+                base_dmg += ammo_info.get("damage_mod", 0)
+                accuracy += ammo_info.get("accuracy_mod", 0)
+                armor_pen = ammo_info.get("armor_pen", 0)
+            else:
+                armor_pen = 0
+        else:
+            armor_pen = 0
         # Модификатор урона от эффективности энергосистемы
         p_gen = self.player.total_power_generated()
         p_con = self.player.total_power_consumed()
@@ -301,6 +498,8 @@ class BattleController:
         crew_dmg = self._crew_bonus("damage")
         accuracy += crew_acc
         damage += crew_dmg
+        # Штрафы от разрушенных отсеков (COMP_EFFECTS, сенсор)
+        accuracy += self._player_accuracy_bonus()
         # Проверка попадания
         e_evasion = self._enemy_stat_with_effects("evasion")
         hit_chance = max(5, min(95, accuracy - e_evasion))
@@ -316,30 +515,60 @@ class BattleController:
         if target_comp is None or target_comp not in self.enemy_comps:
             target_comp = random.choice(COMPARTMENTS)
         comp = self.enemy_comps[target_comp]
-        # Поглощение урона щитами
-        if self.enemy.shield_hp > 0:
-            absorbed = min(self.enemy.shield_hp, damage)
-            self.enemy.shield_hp -= absorbed
-            damage -= absorbed
-            if absorbed > 0:
-                self.add_log(f"🛡 Shield absorbed {absorbed}.")
-        # Пробитие брони и нанесение урона модулю
-        if damage > 0:
-            armor = sum(m.get("armor", 0) for m in comp["modules"])
-            damage = max(1, damage - armor // 3)
+
+        # ── Расчёт урона с учётом типов и резистов ──
+
+        # Шаг 1: сопротивление щита
+        shield_dmg, hull_dmg = _apply_shield_resist(damage, damage_type, self.enemy.shield_hp)
+        if shield_dmg > 0:
+            self.enemy.shield_hp = max(0, self.enemy.shield_hp - shield_dmg)
+            self.add_log(f"🛡 Shield: -{shield_dmg} ({damage_type})")
+
+        # Шаг 2: для disruption — урон идёт напрямую модулям, минуя броню
+        if damage_type == "disruption":
             alive = [m for m in comp["modules"] if m.get("active") and m.get("dur", 0) > 0]
             if alive:
                 hit = random.choice(alive)
-                hit["dur"] = max(0, hit["dur"] - damage)
+                hit["dur"] = max(0, hit["dur"] - hull_dmg)
                 if hit["dur"] <= 0:
                     hit["active"] = False
-                    self.add_log(f"💥 {hit['name']} DESTROYED!")
+                    self.add_log(f"💥 Disruptor: {hit['name']} DESTROYED! (shield bypass)")
                 else:
-                    self.add_log(f"🔧 {hit['name']} -{damage} dur ({hit['dur']}/{hit['max_dur']})")
-            else:
-                self.enemy.hull = max(0, self.enemy.hull - damage)
-                self.add_log(f"💢 Hull hit! -{damage}")
-        self.add_log(f"→ {weapon_name} @ {target_comp}  {'★' if is_crit else ''}")
+                    self.add_log(f"⚡ Disruptor: {hit['name']} -{hull_dmg} dur ({hit['dur']}/{hit['max_dur']})")
+            elif hull_dmg > 0:
+                self.enemy.hull = max(0, self.enemy.hull - hull_dmg)
+                self.add_log(f"💢 Disruptor hits hull! -{hull_dmg}")
+        else:
+            # Шаг 2: сопротивление брони
+            armor = sum(m.get("armor", 0) for m in comp["modules"])
+            hull_dmg = _apply_armor_resist(hull_dmg, damage_type, armor, armor_pen)
+            # Шаг 3: модификатор отсека
+            hull_dmg = _apply_comp_damage_mod(hull_dmg, damage_type, target_comp)
+
+            # Шаг 4: нанесение урона модулю
+            if hull_dmg > 0:
+                alive = [m for m in comp["modules"] if m.get("active") and m.get("dur", 0) > 0]
+                if alive:
+                    hit = random.choice(alive)
+                    hit["dur"] = max(0, hit["dur"] - hull_dmg)
+                    if hit["dur"] <= 0:
+                        hit["active"] = False
+                        self.add_log(f"💥 {hit['name']} DESTROYED!")
+                    else:
+                        self.add_log(f"🔧 {hit['name']} -{hull_dmg} dur ({hit['dur']}/{hit['max_dur']})")
+                else:
+                    self.enemy.hull = max(0, self.enemy.hull - hull_dmg)
+                    self.add_log(f"💢 Hull hit! -{hull_dmg} ({damage_type})")
+
+        # Спецэффект ионного урона
+        if damage_type == "ion" and ammo_used and weapon.loaded_ammo_type == "emp_charge":
+            drain = AMMO_TYPES["emp_charge"].get("energy_drain", 0)
+            if drain > 0:
+                self.add_log(f"⚡ Ion drain: -{drain} enemy energy!")
+
+        # Лог выстрела
+        dt_name = DAMAGE_TYPES.get(damage_type, {}).get("name", damage_type)
+        self.add_log(f"→ {weapon_name} @ {target_comp} [{dt_name}] {'★' if is_crit else ''}")
         # Проверка: уничтожен ли враг
         if self.enemy.hull <= 0:
             self._on_enemy_defeated(); return
@@ -402,6 +631,8 @@ class BattleController:
         if not skill: return
         if self.player_energy < skill["energy_cost"]:
             self.add_log(f"Need {skill['energy_cost']}e, have {self.player_energy}."); return
+        if not self._player_can_skill(skill_id):
+            self.add_log(f"✗ {skill['name']} unavailable (sensor destroyed)."); return
         self.player_energy -= skill["energy_cost"]
         if skill_id == "overload_shields":
             cap = self.player.get_effective_stats().get("shield_cap", 30)
@@ -426,7 +657,12 @@ class BattleController:
         Шанс побега зависит от разницы скоростей кораблей.
         База 40% с модификатором +5% за каждую единицу разницы скорости.
         Шанс ограничен диапазоном [10%, 90%].
+
+        Если двигатель уничтожен — побег невозможен.
         """
+        if not self._player_has_working_engine():
+            self.add_log("✗ Engine destroyed! Can't escape.")
+            self._next_turn(); return
         p_spd = self.player.get_effective_stats().get("speed", 1) + self._crew_bonus("speed")
         e_spd = _total_enemy_stat(self.enemy_comps, "evasion") // 5 + 2
         base = 40 + (p_spd - e_spd) * 5
@@ -436,8 +672,67 @@ class BattleController:
         else:
             self.add_log("✗ Escape failed!"); self._next_turn()
 
+    def do_reload(self):
+        """Перезаряжает первое оружие, в котором закончились боеприпасы.
+
+        Проверяет трюм на наличие боеприпасов, совместимых с классом оружия.
+        Если оружие имеет loaded_ammo_type — грузит его; иначе — slug по умолчанию.
+        Тратит ход.
+        """
+        self.player_defending = False
+        weapons = self._get_player_weapons()
+        # Ищем первое оружие без патронов
+        reloaded = False
+        for w in weapons:
+            if w.needs_ammo() and not w.has_ammo():
+                # Определяем, какой тип боеприпасов загружать
+                target_ammo = w.loaded_ammo_type or "slug"
+                loaded = w.load_ammo(target_ammo, w.ammo_capacity, self.player.cargo)
+                if loaded > 0:
+                    self.add_log(f"🔃 {w.name} reloaded: {w.current_ammo}/{w.ammo_capacity} ({target_ammo})")
+                    reloaded = True
+                else:
+                    self.add_log(f"✗ No {target_ammo} in cargo for {w.name}!")
+                    self._next_turn(); return
+                break
+        if not reloaded:
+            # Проверяем, есть ли оружие с неполным магазином
+            for w in weapons:
+                if w.needs_ammo() and w.current_ammo < w.ammo_capacity:
+                    target_ammo = w.loaded_ammo_type or "slug"
+                    loaded = w.load_ammo(target_ammo, w.ammo_capacity - w.current_ammo, self.player.cargo)
+                    if loaded > 0:
+                        self.add_log(f"🔃 {w.name} topped up: {w.current_ammo}/{w.ammo_capacity} ({target_ammo})")
+                        reloaded = True
+                    break
+        if not reloaded:
+            self.add_log("✗ All weapons already loaded.")
+        self._next_turn()
+
+    def _tick_player_status_effects(self):
+        """Применяет эффекты от разрушенных отсеков в начале каждого хода игрока.
+
+        - Life support уничтожен: экипаж теряет кислород → -5 hull в ход
+        - Cargo уничтожен: грузовой отсек разгерметизирован → теряется случайный предмет
+        """
+        if self.over: return
+        if self._player_comp_destroyed("life_support"):
+            dmg = 5
+            self.player.hull = max(0, self.player.hull - dmg)
+            self.add_log(f"☠ Life support failed! -{dmg} hull (crew suffocating).")
+            if self.player.hull <= 0:
+                self._on_player_defeated(); return
+        if self._player_comp_destroyed("cargo"):
+            items = [k for k, v in self.player.cargo.items.items() if v > 0]
+            if items:
+                lost = random.choice(items)
+                qty = self.player.cargo.remove(lost, 1)
+                self.add_log(f"💨 Cargo breached! Lost 1×{lost}.")
+
     def _next_turn(self):
-        """Завершает ход игрока: восстанавливает энергию и запускает ход врага."""
+        """Завершает ход игрока: тикают эффекты, реген энергии, ход врага."""
+        if self.over: return
+        self._tick_player_status_effects()
         if self.over: return
         self._regen_player_energy()
         self._do_enemy_turn()
@@ -474,6 +769,7 @@ class BattleController:
             weapon = random.choice(weapons)
             base_dmg = weapon.get("damage", 8)
             acc = weapon.get("accuracy", 60)
+            damage_type = weapon.get("damage_type", "energy")
             hit_chance = max(5, min(95, acc - self._player_evasion()))
             if random.random() * 100 < hit_chance:
                 damage = base_dmg
@@ -481,22 +777,35 @@ class BattleController:
                 viable = [c for c in priorities if self.enemy_comps[c]["modules"]]
                 tcomp = viable[0] if viable else random.choice(COMPARTMENTS)
                 target = self.player.compartments[tcomp]
-                # Поглощение урона щитами игрока
-                if self.player.shield_hp > 0:
-                    absorbed = min(self.player.shield_hp, damage)
-                    self.player.shield_hp -= absorbed; damage -= absorbed
-                # Нанесение урона модулю или корпусу
-                if damage > 0:
-                    alive = [m for m in target["modules"] if m.active and not m.is_broken()]
-                    if alive:
-                        hit = random.choice(alive)
-                        hit.durability = max(0, hit.durability - damage)
-                        self.add_log(f"☠ {self.enemy.name} hits {hit.name}! (-{damage})")
-                        if hit.is_broken(): hit.active = False; self.add_log(f"💥 {hit.name} BROKEN!")
+
+                # ── Расчёт урона с типом (аналогично атаке игрока) ──
+                shield_dmg, hull_dmg = _apply_shield_resist(damage, damage_type, self.player.shield_hp)
+                if shield_dmg > 0:
+                    self.player.shield_hp = max(0, self.player.shield_hp - shield_dmg)
+
+                if hull_dmg > 0:
+                    if damage_type == "disruption":
+                        alive_mods = [m for m in target["modules"] if m.active and not m.is_broken()]
+                        if alive_mods:
+                            hit = random.choice(alive_mods)
+                            hit.durability = max(0, hit.durability - hull_dmg)
+                            self.add_log(f"☠ {self.enemy.name} disrupts {hit.name}! (-{hull_dmg})")
+                            if hit.is_broken(): hit.active = False; self.add_log(f"💥 {hit.name} BROKEN!")
+                        else:
+                            self.player.hull = max(0, self.player.hull - hull_dmg)
+                            self.add_log(f"☠ {self.enemy.name} hull hit! -{hull_dmg}")
                     else:
-                        self.player.hull = max(0, self.player.hull - damage)
-                        self.add_log(f"☠ {self.enemy.name} hits hull! (-{damage})")
-                self.add_log(f"☠ {self.enemy.name} attacks {tcomp}.")
+                        alive_mods = [m for m in target["modules"] if m.active and not m.is_broken()]
+                        if alive_mods:
+                            hit = random.choice(alive_mods)
+                            hit.durability = max(0, hit.durability - hull_dmg)
+                            self.add_log(f"☠ {self.enemy.name} hits {hit.name}! (-{hull_dmg})")
+                            if hit.is_broken(): hit.active = False; self.add_log(f"💥 {hit.name} BROKEN!")
+                        else:
+                            self.player.hull = max(0, self.player.hull - hull_dmg)
+                            self.add_log(f"☠ {self.enemy.name} hits hull! (-{hull_dmg})")
+                dt_name = DAMAGE_TYPES.get(damage_type, {}).get("name", damage_type)
+                self.add_log(f"☠ {self.enemy.name} attacks {tcomp} [{dt_name}].")
             else:
                 self.add_log(f"☠ {self.enemy.name} missed!")
         else:
@@ -526,14 +835,14 @@ class BattleController:
         if self.is_pirate:
             self.player.reputation["free_traders"] = min(100, self.player.reputation.get("free_traders", 0) + 2)
         self.add_log(f"★ {self.enemy.name} destroyed! +{loot_cr}cr, {amt}×{loot_item}.")
-        if hasattr(self.app, "logger"):
+        if self.app is not None and hasattr(self.app, "logger"):
             self.app.logger.combat(f"★ Victory! +{loot_cr}cr, {amt}×{loot_item}.")
 
     def _on_player_defeated(self):
         """Обрабатывает поражение игрока: завершает бой и записывает причину смерти."""
         self.over = True; self.victory = False
         self.add_log(f"☠ {self.player.name} destroyed...")
-        if hasattr(self.app, "death_cause"):
+        if self.app is not None and hasattr(self.app, "death_cause"):
             self.app.death_cause = f"Destroyed by {self.enemy.name}."
 
     def debug_enemy_status(self):
@@ -568,14 +877,16 @@ class BattleScreen(Screen):
     Управляется с клавиатуры через on_key.
     """
 
-    def __init__(self, controller: BattleController):
+    def __init__(self, controller: BattleController, quick_battle=False):
         """Инициализирует экран боя.
 
         Параметры:
             controller: экземпляр BattleController, управляющий логикой боя
+            quick_battle: True — режим быстрого боя (не переключает GAME_OVER при смерти)
         """
         super().__init__()
         self.ctrl = controller  # контроллер боя
+        self.quick_battle = quick_battle  # режим быстрого боя (без GAME_OVER)
         self.menu_state = "main"  # текущее состояние меню (main / attack_weapon / attack_target / items / skills)
         self.menu_index = 0  # индекс в текущем меню
         self.selected_weapon_idx = controller.selected_weapon_idx  # индекс выбранного оружия
@@ -623,6 +934,17 @@ class BattleScreen(Screen):
             marker = f"[{i+1}]" if not c.over else "   "
             lines.append(f"  │  {marker} {status:<30}{'':>35}  │")
 
+        # ── Схема отсеков игрока ──
+        lines.append(f"  │  {'─' * (W-6)}  │")
+        lines.append(f"  │  {'YOUR COMPARTMENTS':^{W-6}}  │")
+        lines.append(f"  │  {'─' * (W-6)}  │")
+        for comp_name in COMPARTMENTS:
+            pd = c.player.compartments[comp_name]
+            status = _player_comp_status_str(comp_name, pd, 10)
+            destroyed = c._player_comp_destroyed(comp_name)
+            icon = " ☠" if destroyed else "  "
+            lines.append(f"  │  {icon}{status:<30}{'':>35}  │")
+
         # ── Лог боя (последние 5 записей) ──
         lines.append(f"  │  {'─' * (W-6)}  │")
         for entry in c.log[-5:]:
@@ -653,34 +975,36 @@ class BattleScreen(Screen):
         ms = self.menu_state; c = self.ctrl
         if ms == "main":
             return [
-                "[1] Attack  [2] Defend  [3] Items  [4] Skills  [5] Escape",
+                "\\[1] Attack  \\[2] Defend  \\[3] Items  \\[4] Skills  \\[5] Escape  \\[6] Reload",
                 f"    Energy: {c.player_energy}/{c.player_max_energy}",
             ]
         elif ms == "attack_weapon":
             r = []
             for i, w in enumerate(c._get_player_weapons()):
-                r.append(f"  [{i+1}] {w.name}  ⚔{w.stats.get('damage',0)} 🎯{w.stats.get('accuracy',0)}% ⚡{w.energy_consumption}")
-            r.append("  [0] Back"); return r
+                r.append(f"  \\[{i+1}] {w.name}  ⚔{w.stats.get('damage',0)} 🎯{w.stats.get('accuracy',0)}% ⚡{w.energy_consumption}")
+            r.append("  \\[0] Back"); return r
         elif ms == "attack_target":
             r = []
             for i, cn in enumerate(COMPARTMENTS):
                 alive = [m for m in c.enemy_comps[cn]["modules"] if m.get("active") and m.get("dur", 0) > 0]
-                r.append(f"    [{i+1}] {cn:<14} ({len(alive)} mod)" if alive else f"    [{i+1}] {cn:<14} (inert)")
-            r.append("    [0] Random")
+                r.append(f"    \\[{i+1}] {cn:<14} ({len(alive)} mod)" if alive else f"    \\[{i+1}] {cn:<14} (inert)")
+            r.append("    \\[0] Random")
             return r
         elif ms == "items":
             found = False; r = []
             for rid, info in BATTLE_CONSUMABLES.items():
                 qty = c.player.cargo.has(rid)
-                if qty > 0: found = True; r.append(f"  [{rid[0].upper()}] {info['name']:<16} x{qty}")
+                if qty > 0: found = True; r.append(f"  \\[{rid[0].upper()}] {info['name']:<16} x{qty}")
             if not found: r.append("  (no items)")
-            r.append("  [0] Back"); return r
+            r.append("  \\[0] Back"); return r
         elif ms == "skills":
             r = []
             for sid, sk in BATTLE_SKILLS.items():
                 ok = "✓" if c.player_energy >= sk["energy_cost"] else "✗"
-                r.append(f"  [{sid[0].upper()}] {sk['name']:<20} {sk['energy_cost']}e {ok}")
-            r.append("  [0] Back"); return r
+                can = c._player_can_skill(sid)
+                disabled = "" if can else " 🔒(no sensor)"
+                r.append(f"  \\[{sid[0].upper()}] {sk['name']:<20} {sk['energy_cost']}e {ok}{disabled}")
+            r.append("  \\[0] Back"); return r
         return []
 
     def on_key(self, event):
@@ -699,7 +1023,7 @@ class BattleScreen(Screen):
             self.dismiss()
             return
         event.stop()
-        k = event.key
+        k = event.key.lower()
         if self.menu_state == "main":
             if k == "1":
                 if c._get_player_weapons(): self.menu_state = "attack_weapon"
@@ -708,6 +1032,7 @@ class BattleScreen(Screen):
             elif k == "3": self.menu_state = "items"
             elif k == "4": self.menu_state = "skills"
             elif k == "5": c.do_escape()
+            elif k == "6": c.do_reload()
             self._update_display()
         elif self.menu_state == "attack_weapon":
             wk = c._get_player_weapons()
@@ -738,9 +1063,13 @@ class BattleScreen(Screen):
     def _apply_outcome(self):
         """Применяет результат боя к состоянию игры.
 
-        При поражении устанавливает GameState.GAME_OVER и записывает причину смерти.
-        Обновляет карту и информационную панель в приложении.
+        В режиме быстрого боя (quick_battle=True) не переключает GameState.GAME_OVER
+        и не модифицирует состояние приложения — экран просто закрывается.
+        В обычном режиме при поражении устанавливает GameState.GAME_OVER
+        и записывает причину смерти. Обновляет карту и информационную панель.
         """
+        if self.quick_battle:
+            return  # в быстром бою не трогаем состояние приложения
         c = self.ctrl; app = self.app
         if not c.victory and c.player.hull <= 0:
             if hasattr(app, "GameState"):

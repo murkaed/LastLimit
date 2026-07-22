@@ -19,7 +19,7 @@ ui.py — Все экраны интерфейса игры LastLimit.
 
 from textual.screen import Screen
 from textual.widgets import Static, Input, DataTable, Footer
-from config import RESOURCES, COMPARTMENTS, SHIP_MODULES, SHIP_HULLS, UPGRADES, RECIPES, CREW_SPECIALTIES
+from config import RESOURCES, COMPARTMENTS, SHIP_MODULES, SHIP_HULLS, UPGRADES, RECIPES, CREW_SPECIALTIES, WEAPON_CLASSES, AMMO_TYPES
 
 # ═══════════════════════════════════════════════════════════════════════
 # BaseScreen — единый базовый класс для всех экранов игры
@@ -981,6 +981,8 @@ class TacticalScreen(Screen):
         self._active_panel = "weapons"  # активная панель: "weapons" | "targets"
         self._sel_weapon = 0  # индекс выбранного оружия
         self._sel_target = 0  # индекс выбранной цели
+        self._show_ammo_load = False  # флаг: показать список боеприпасов для загрузки
+        self._load_weapon_idx = 0  # индекс оружия, для которого загружаем
 
     def compose(self):
         """Создаёт виджет тактического содержимого."""
@@ -1066,10 +1068,52 @@ class TacticalScreen(Screen):
                 dur_pct = int(w.durability / max(1, w.max_durability) * 100)
                 active = "▶" if i == self._sel_weapon and self._active_panel == "weapons" else " "
                 selected = "*ACTIVE*" if i == self._sel_weapon else "         "
+
+                # Ammo display
+                wc_name = WEAPON_CLASSES.get(w.weapon_class, {}).get("name", "")
+                if w.needs_ammo():
+                    ammo_str = f" 🎯{w.current_ammo}/{w.ammo_capacity}"
+                    if w.loaded_ammo_type:
+                        ammo_name = AMMO_TYPES.get(w.loaded_ammo_type, {}).get("name", w.loaded_ammo_type)
+                        ammo_str += f" ({ammo_name})"
+                    else:
+                        ammo_str += " (empty)"
+                else:
+                    ammo_str = f" ({wc_name})"
+
                 lines.append(
                     f"│{active}{i+1}. {w.name:<14} Lv{w.level}  "
-                    f"⚔{dp:>3} 🎯{ac:>2}% ⚡{ec}  {_bar(dur_pct, 5)} {selected}│"
+                    f"⚔{dp:>3} 🎯{ac:>2}% ⚡{ec}  {_bar(dur_pct, 5)} {selected} │"
                 )
+                if w.needs_ammo():
+                    lines.append(f"│      Ammo: [{'●'*w.current_ammo}{'○'*(w.ammo_capacity-w.current_ammo)}] {ammo_str:<33}│")
+
+        # ── Ammo loading sub-panel ──
+        if self._show_ammo_load and weapons:
+            w = weapons[self._load_weapon_idx]
+            lines.append(f"│  {'═' * 25} LOAD AMMO {'═' * 21}│")
+            lines.append(f"│  Load ammo for: {w.name:<30}           │")
+            lines.append(f"│  Current: {w.current_ammo}/{w.ammo_capacity}", )
+            if w.loaded_ammo_type:
+                curr = AMMO_TYPES.get(w.loaded_ammo_type, {}).get("name", w.loaded_ammo_type)
+                lines.append(f"│  Loaded: {curr:<43}│")
+            lines.append(f"│  {'─' * 52}│")
+
+            # Show compatible ammo from cargo
+            cargo = s.cargo
+            found_ammo = False
+            for aid, ainfo in AMMO_TYPES.items():
+                qty = cargo.has(aid)
+                if qty > 0:
+                    found_ammo = True
+                    dt_name = ainfo.get("damage_type", "")
+                    dmod = ainfo.get("damage_mod", 0)
+                    amod = ainfo.get("accuracy_mod", 0)
+                    mods = f"⚔{dmod:+d} 🎯{amod:+d}" if dmod or amod else "     "
+                    lines.append(f"│  \\[{aid[0].upper()}] {ainfo['name']:<15} x{qty:<4} {mods:<12} │")
+            if not found_ammo:
+                lines.append(f"│  No compatible ammo in cargo.                  │")
+            lines.append(f"│  \\[0] Back                                   │")
 
         # ── Targets panel ──
         lines.append(f"│  {'═' * 25} TARGETS {'═' * 21}│")
@@ -1100,26 +1144,62 @@ class TacticalScreen(Screen):
             f"{'':<20}│"
         )
         lines.append(
-            f"│  {'[F] Fire at Will (auto)':<30}"
-            f"{'[Tab] Switch panel':<25}│"
+            f"│  {'\\[F] Fire at Will (auto)':<30}"
+            f"{'\\[Tab] Switch panel':<25}│"
         )
         lines.append("├" + "─" * 56 + "┤")
-        lines.append(
-            f"│  [↑↓] Navigate  [Tab] Weapons/Targets  [Enter] Battle"
-            f"{'':<10}│"
-        )
-        lines.append("│" + "[Esc] Back to Bridge".center(56) + "│")
+        if self._show_ammo_load:
+            lines.append(
+                f"│  Press ammo key (S/R/H/E/P) to load, [0] back{'':>30}│"
+            )
+        else:
+            lines.append(
+                f"│  \\[↑↓] Navigate  \\[Tab] Weapons/Targets  \\[Enter] Battle"
+                f"{'':<10}│"
+            )
+            if weapons and any(w.needs_ammo() for w in weapons):
+                lines.append(
+                    f"│  \\[L] Load Ammo{'':<44}│"
+                )
+        lines.append("│" + "\\[Esc] Back to Bridge".center(56) + "│")
         lines.append("└" + "─" * 56 + "┘")
 
         self.query_one("#tac-content").update("\n".join(lines))
 
     def on_key(self, event):
-        """Обрабатывает клавиши: стрелки для навигации, Tab для переключения панели, Enter/F для атаки, Escape для выхода."""
+        """Обрабатывает клавиши: стрелки для навигации, Tab для переключения панели, Enter/F для атаки, L для загрузки аммо, Escape для выхода."""
         if event.key == "escape":
-            event.stop(); self.dismiss(); return
+            if self._show_ammo_load:
+                self._show_ammo_load = False
+                self._refresh()
+            else:
+                event.stop(); self.dismiss()
+            return
 
         weapons = self._get_weapons()
         targets = self._get_targets()
+
+        # Sub-mode: ammo loading
+        if self._show_ammo_load and weapons:
+            k = event.key.lower()
+            if k == "0":
+                self._show_ammo_load = False
+                self._refresh()
+                return
+            # Try to load matching ammo type
+            w = weapons[self._load_weapon_idx]
+            for aid in AMMO_TYPES:
+                if aid[0].lower() == k:
+                    loaded = w.load_ammo(aid, w.ammo_capacity - w.current_ammo, self.app.ship.cargo)
+                    if loaded > 0:
+                        ammo_name = AMMO_TYPES[aid]["name"]
+                        self.app.logger.system(f"Tactical: loaded {loaded}×{ammo_name} into {w.name}.")
+                    else:
+                        self.app.logger.system(f"No {AMMO_TYPES[aid]['name']} in cargo.")
+                    self._refresh()
+                    return
+            # If no match, keep the ammo panel open
+            return
 
         if event.key == "up":
             if self._active_panel == "weapons" and weapons:
@@ -1143,6 +1223,16 @@ class TacticalScreen(Screen):
             if weapons and hostiles:
                 _, target = hostiles[0]
                 self._start_battle(target)
+        elif event.key in ("l", "L"):
+            # Load Ammo — открыть панель загрузки боеприпасов для выбранного оружия
+            if weapons and self._active_panel == "weapons":
+                w = weapons[self._sel_weapon]
+                if w.needs_ammo():
+                    self._show_ammo_load = True
+                    self._load_weapon_idx = self._sel_weapon
+                    self._refresh()
+                else:
+                    self.app.logger.system(f"{w.name} doesn't use ammo.")
         elif event.key == "enter":
             # Engage: selected weapon × selected target
             sel_w = self._sel_weapon if self._active_panel == "weapons" else self._sel_target

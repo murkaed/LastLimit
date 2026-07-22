@@ -197,6 +197,8 @@ class ShipModule:
         self.id = mod_id  # идентификатор модуля
         self.name = info.get("name", mod_id)  # название модуля
         self.comp = info.get("comp", "reactor")  # отсек, куда устанавливается
+        self.weapon_class = info.get("weapon_class")  # класс оружия (None для не-оружия)
+        self.damage_type = info.get("damage_type", "energy")  # тип урона
         self.energy_consumption = info.get("energy", 0)  # потребление энергии
         self.stats = {k: v for k, v in info.items() if k in MODULE_STAT_KEYS}  # характеристики модуля
         self.level = level  # уровень модуля
@@ -206,6 +208,10 @@ class ShipModule:
         self.cost = info.get("cost", 100)  # базовая стоимость в кредитах
         self.active = True  # активен ли модуль
         self.desc = info.get("desc", "")  # текстовое описание
+        # ── Система боеприпасов ──
+        self.ammo_capacity = info.get("ammo_capacity", 0)  # макс. количество зарядов
+        self.current_ammo = self.ammo_capacity  # текущее количество зарядов
+        self.loaded_ammo_type = None  # тип заряженных боеприпасов (str или None)
 
     def is_broken(self):
         """Проверяет, сломан ли модуль (прочность <= 0).
@@ -214,6 +220,78 @@ class ShipModule:
             True, если модуль сломан.
         """
         return self.durability <= 0
+
+    # ── Система боеприпасов ──
+
+    def needs_ammo(self):
+        """Проверяет, требуется ли этому модулю оружия боеприпасы.
+
+        Returns:
+            True, если оружие имеет магазин и использует боеприпасы.
+        """
+        return self.ammo_capacity > 0
+
+    def has_ammo(self):
+        """Проверяет, есть ли заряды в магазине.
+
+        Returns:
+            True, если current_ammo > 0.
+        """
+        return self.current_ammo > 0
+
+    def consume_ammo(self, amount=1):
+        """Расходует боеприпас при выстреле.
+
+        Args:
+            amount: количество расходуемых зарядов.
+
+        Returns:
+            True, если заряды были; False, если недостаточно.
+        """
+        if self.current_ammo < amount:
+            return False
+        self.current_ammo -= amount
+        return True
+
+    def load_ammo(self, ammo_type: str, amount: int, from_cargo) -> int:
+        """Загружает боеприпасы в оружие из трюма.
+
+        Args:
+            ammo_type: идентификатор типа боеприпасов.
+            amount: сколько единиц попытаться загрузить.
+            from_cargo: объект CargoHold, откуда брать боеприпасы.
+
+        Returns:
+            Количество реально загруженных единиц.
+        """
+        if not self.needs_ammo():
+            return 0
+        available = from_cargo.has(ammo_type)
+        to_load = min(amount, available, self.ammo_capacity - self.current_ammo)
+        if to_load <= 0:
+            return 0
+        from_cargo.remove(ammo_type, to_load)
+        self.current_ammo += to_load
+        self.loaded_ammo_type = ammo_type
+        return to_load
+
+    def unload_ammo(self, to_cargo) -> int:
+        """Выгружает боеприпасы из оружия обратно в трюм.
+
+        Args:
+            to_cargo: объект CargoHold, куда вернуть боеприпасы.
+
+        Returns:
+            Количество выгруженных единиц.
+        """
+        if not self.needs_ammo() or self.current_ammo <= 0:
+            return 0
+        unloaded = self.current_ammo
+        if self.loaded_ammo_type:
+            to_cargo.add(self.loaded_ammo_type, unloaded)
+        self.current_ammo = 0
+        self.loaded_ammo_type = None
+        return unloaded
 
     def upgrade_cost(self):
         """Вычисляет стоимость улучшения модуля в кредитах.
@@ -368,6 +446,8 @@ class PlayerShip:
         self.credits = 1000  # кредиты
         self.radiation_shield = False  # флаг защиты от радиации звёзд
         self.race = "human"  # раса игрока
+        self.race_data = {}  # кэш бонусов/штрафов текущей расы (заполняется apply_race_bonus)
+        self.race_hull_bonus = 0  # бонус корпуса от расы
         self.religion = None  # религия (влияет на контрабанду)
         self.reputation = {f: 0 for f in FACTIONS}  # репутация с фракциями
         self.reputation["pirates"] = -10  # начальная репутация с пиратами
@@ -453,6 +533,50 @@ class PlayerShip:
             if cm.name.lower() == name.lower():
                 return cm
         return None
+
+    # ---------- Race bonuses ----------
+
+    def apply_race_bonus(self, race_id=None):
+        """Устанавливает текущую расу и пересчитывает её бонусы/штрафы.
+
+        Вызывается при выборе расы в стартовом меню.
+        Модифицирует max_hull (если расовый бонус влияет на корпус)
+        и кэширует все бонусы в self.race_data.
+
+        Args:
+            race_id: идентификатор расы (например, "human", "mutant").
+                     Если None — применяет текущую self.race.
+        """
+        if race_id:
+            self.race = race_id
+        race_cfg = RACES.get(self.race, RACES["human"])
+        bonuses = dict(race_cfg.get("bonus", {}))
+        penalties = dict(race_cfg.get("penalty", {}))
+        # Собираем все модификаторы в один словарь
+        merged = {}
+        for k, v in bonuses.items():
+            merged[k] = v
+        for k, v in penalties.items():
+            merged[k] = merged.get(k, 0) + v
+        self.race_data = merged
+        # Применяем модификаторы корпуса
+        hull_mod = merged.pop("max_hull", 0)
+        old_max = self.max_hull
+        self.race_hull_bonus = hull_mod
+        self.max_hull = max(20, self.max_hull + hull_mod)
+        self.hull = min(self.hull, self.max_hull)
+
+    def _race_bonus(self, key, default=0):
+        """Возвращает расовый бонус/штраф по указанной характеристике.
+
+        Args:
+            key: ключ характеристики (например, "accuracy", "damage").
+            default: значение по умолчанию.
+
+        Returns:
+            Числовое значение бонуса (положительное или отрицательное).
+        """
+        return self.race_data.get(key, default)
 
     # ---------- Hull management ----------
 
@@ -844,7 +968,7 @@ class PlayerShip:
             m.stats.get("power", 0)
             for m in self.compartments["reactor"]["modules"]
         )
-        bonus = self._upgrade_bonus("power_bonus", 0)
+        bonus = self._upgrade_bonus("power_bonus", 0) + self._race_bonus("power_bonus", 0)
         return base + bonus
 
     def total_power_consumed(self):
@@ -889,6 +1013,9 @@ class PlayerShip:
         # Apply crew bonuses
         for bonus_key, stat_key in CREW_STAT_MAP.items():
             stats[stat_key] += self._crew_bonus(bonus_key, 0)
+        # Apply race bonuses (keys that match stat names directly)
+        for k in stats:
+            stats[k] += self._race_bonus(k, 0)
         return {k: int(v) for k, v in stats.items()}
 
     def check_missions(self, station):
@@ -2079,3 +2206,166 @@ class Galaxy:
             if p.alive and p.x == x and p.y == y:
                 return True
         return (x, y) in self.objects
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Factory functions for quick battle / debug mode
+# ═══════════════════════════════════════════════════════════════════
+
+# Модули, сгруппированные по типу отсека
+_MODULES_BY_COMP = {}
+for _mid, _minfo in SHIP_MODULES.items():
+    _MODULES_BY_COMP.setdefault(_minfo["comp"], []).append(_mid)
+
+# Отсеки, которые могут быть пустыми (не критичны для старта)
+_OPTIONAL_COMPS = {"life_support", "cargo"}
+
+
+def _assign_crew_to_ship(ship, count=2):
+    """Создаёт и назначает случайный экипаж на корабль."""
+    specs = list(CREW_SPECIALTIES)
+    posts = list(ship.crew.keys())
+    for _ in range(count):
+        name = random.choice(CREW_NAMES) + str(random.randint(1, 99))
+        spec = random.choice(specs)
+        cm = CrewMember(name, spec)
+        cm.level = random.choices([1, 2], weights=[70, 30])[0]
+        # Поднять бонусы под уровень
+        if cm.level > 1:
+            for k in cm.bonus:
+                cm.bonus[k] = int(cm.bonus[k] * (1 + (cm.level - 1) * 0.15))
+        ship.crew_members.append(cm)
+        # Назначить на подходящий пост, если свободен
+        spec_posts = CREW_SPECIALTIES.get(spec, {}).get("posts", [])
+        for p in spec_posts:
+            if p in ship.crew and ship.crew[p] is None:
+                ship.crew[p] = cm.name
+                cm.assigned = True
+                break
+
+
+def _fill_ship_compartments(ship, hull_cfg):
+    """Заполняет отсеки корабля случайными модулями.
+
+    Устанавливает по 1 модулю в каждый доступный отсек.
+    Для реактора, двигателя, щита и сенсора — всегда ставит модуль.
+    Для оружия — 1 оружие (если отсек активен).
+    Для опциональных отсеков (cargo, life_support) — с шансом 50%.
+    """
+    num_comps = hull_cfg.get("compartments", 5)
+    priority = ["reactor", "engine", "shield", "sensor", "weapon",
+                "cargo", "life_support"]
+    active = set(priority[:num_comps])
+
+    # Очищаем стартовые модули (которые поставил __init__)
+    for c in COMPARTMENTS:
+        ship.compartments[c]["modules"] = []
+
+    required = {"reactor", "engine", "shield", "sensor", "weapon"}
+    for comp in COMPARTMENTS:
+        if comp not in active:
+            continue
+        # Опциональные отсеки — 50% шанс
+        if comp in _OPTIONAL_COMPS and random.random() < 0.5:
+            continue
+        pool = _MODULES_BY_COMP.get(comp, [])
+        if not pool:
+            continue
+        # Случайный модуль, предпочтение 1-2 level, малый шанс mk2
+        mod_id = random.choice(pool)
+        level = random.choices([1, 2], weights=[60, 40])[0]
+        mod = ShipModule(mod_id, level=level)
+        ship.compartments[comp]["modules"].append(mod)
+        # Если это оружие, можно добавить второе для активного weapon-отсека
+        if comp == "weapon" and random.random() < 0.4 and len(pool) > 1:
+            mod_id2 = random.choice([m for m in pool if m != mod_id])
+            level2 = random.choices([1, 2], weights=[60, 40])[0]
+            ship.compartments[comp]["modules"].append(ShipModule(mod_id2, level=level2))
+
+
+def create_random_ship(is_player=True):
+    """Создаёт полностью укомплектованный случайный корабль для быстрого боя.
+
+    Параметры:
+        is_player: True — создать PlayerShip; False — создать корабль-противника.
+
+    Возвращает:
+        PlayerShip со случайным корпусом, модулями, экипажем и грузом.
+    """
+    # Выбираем случайный корпус (исключая shuttle)
+    hull_ids = [k for k in SHIP_HULLS if k != "shuttle"]
+    hull_id = random.choice(hull_ids)
+    hull_cfg = SHIP_HULLS[hull_id]
+
+    # Создаём корабль с этим корпусом
+    ship = PlayerShip(
+        name=f"{(hull_cfg['name'])}-{random.randint(100,999)}",
+        hull=hull_cfg["hull"],
+    )
+    ship.hull_id = hull_id
+    ship.max_hull = hull_cfg["hull"]
+    ship.name = f"{(hull_cfg['name'])}-{random.randint(100,999)}"
+
+    # Пересоздаём отсеки под этот корпус
+    ship._init_compartments(hull_cfg)
+
+    # Заполняем случайными модулями
+    _fill_ship_compartments(ship, hull_cfg)
+
+    # Экипаж
+    crew_count = random.randint(2, 3)
+    _assign_crew_to_ship(ship, crew_count)
+
+    # Груз: расходники
+    ship.cargo.add("repair_kit", random.randint(2, 3))
+    ship.cargo.add("fuel_cell", random.randint(2, 3))
+    ship.cargo.add("shield_booster", random.randint(0, 1))
+
+    # Энергия по умолчанию
+    stats = ship.get_effective_stats()
+    ship.shield_hp = max(20, stats.get("shield_cap", 20))
+
+    # alive для совместимости с NPCShip (враг проверяет .alive)
+    ship.alive = True
+
+    return ship
+
+
+def create_random_enemy():
+    """Создаёт случайного противника для быстрого боя.
+
+    Использует PlayerShip как базу, чтобы у противника были
+    полноценные отсеки с модулями. Возвращаемый объект совместим
+    с BattleController (имеет hull, shield_hp, .alive, take_damage).
+
+    Возвращает:
+        PlayerShip с пониженным на ~15% качеством модулей.
+    """
+    hull_ids = [k for k in SHIP_HULLS if k != "shuttle"]
+    # Противник может быть на корпус проще
+    hull_id = random.choice(hull_ids[:min(3, len(hull_ids))])
+    hull_cfg = SHIP_HULLS[hull_id]
+
+    ship = PlayerShip(
+        name=f"Enemy-{random.choice(['Raider','Reaver','Corsair'])}{random.randint(1,99)}",
+        hull=hull_cfg["hull"],
+    )
+    ship.hull_id = hull_id
+    ship.max_hull = hull_cfg["hull"]
+    ship._init_compartments(hull_cfg)
+
+    # Заполняем модулями, но чуть слабее
+    _fill_ship_compartments(ship, hull_cfg)
+
+    # Противник без экипажа или с одним (меньше бонусов)
+    if random.random() < 0.5:
+        _assign_crew_to_ship(ship, 1)
+
+    # Минимальный груз
+    ship.cargo.add("repair_kit", random.randint(0, 1))
+
+    stats = ship.get_effective_stats()
+    ship.shield_hp = max(15, stats.get("shield_cap", 15))
+    ship.alive = True
+
+    return ship

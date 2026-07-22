@@ -171,10 +171,17 @@ class TestCrafting:
     def test_every_recipe_is_craftable(self, player_ship, recipe_id):
         """Try crafting each known recipe with sufficient resources."""
         recipe = RECIPES[recipe_id]
+        # Увеличиваем груз для больших рецептов (фикстура уже содержит ресурсы)
+        need = sum(amt * 2 for amt in recipe["inputs"].values())
+        if player_ship.cargo.free() <= need:
+            player_ship.cargo.capacity += need * 2
         for rid, amt in recipe["inputs"].items():
+            if player_ship.cargo.free() < amt * 2:
+                player_ship.cargo.capacity += amt * 2
             player_ship.cargo.add(rid, amt * 2)
         msg, ok = player_ship.craft(recipe_id, 1)
         assert ok, f"Failed to craft {recipe_id}: {msg}"
+        assert player_ship.cargo.has(recipe_id) > 0, f"Output not in cargo: {recipe_id}"
 
     def test_craft_consumes_inputs(self, player_ship):
         """Crafting repair_kit consumes 3 metal + 1 electronics."""
