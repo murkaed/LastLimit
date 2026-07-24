@@ -992,19 +992,23 @@ class BattleScreen(Screen):
             return r
         elif ms == "items":
             found = False; r = []
-            for rid, info in BATTLE_CONSUMABLES.items():
+            item_list = list(BATTLE_CONSUMABLES.items())
+            for i, (rid, info) in enumerate(item_list):
                 qty = c.player.cargo.has(rid)
-                if qty > 0: found = True; r.append(f"  \\[{rid[0].upper()}] {info['name']:<16} x{qty}")
+                if qty > 0:
+                    found = True
+                    r.append(f"  [{i+1}] {info['name']:<16} x{qty}")
             if not found: r.append("  (no items)")
-            r.append("  \\[0] Back"); return r
+            r.append("  [0] Back"); return r
         elif ms == "skills":
             r = []
-            for sid, sk in BATTLE_SKILLS.items():
+            skill_list = list(BATTLE_SKILLS.items())
+            for i, (sid, sk) in enumerate(skill_list):
                 ok = "✓" if c.player_energy >= sk["energy_cost"] else "✗"
                 can = c._player_can_skill(sid)
                 disabled = "" if can else " 🔒(no sensor)"
-                r.append(f"  \\[{sid[0].upper()}] {sk['name']:<20} {sk['energy_cost']}e {ok}{disabled}")
-            r.append("  \\[0] Back"); return r
+                r.append(f"  [{i+1}] {sk['name']:<20} {sk['energy_cost']}e {ok}{disabled}")
+            r.append("  [0] Back"); return r
         return []
 
     def on_key(self, event):
@@ -1048,16 +1052,24 @@ class BattleScreen(Screen):
                 if idx < len(COMPARTMENTS): c.do_attack(self.selected_weapon_idx, COMPARTMENTS[idx]); self.menu_state = "main"
             self._update_display()
         elif self.menu_state == "items":
+            item_list = list(BATTLE_CONSUMABLES.keys())
             if k == "0": self.menu_state = "main"
-            else:
-                km = {"r": "repair_kit", "f": "fuel_cell", "s": "shield_booster"}
-                if k in km and c.player.cargo.has(km[k]): c.do_use_item(km[k]); self.menu_state = "main"
+            elif k in "123456789":
+                idx = int(k) - 1
+                if idx < len(item_list):
+                    rid = item_list[idx]
+                    if c.player.cargo.has(rid):
+                        c.do_use_item(rid)
+                        self.menu_state = "main"
             self._update_display()
         elif self.menu_state == "skills":
+            skill_list = list(BATTLE_SKILLS.keys())
             if k == "0": self.menu_state = "main"
-            else:
-                km = {"o": "overload_shields", "p": "precise_shot", "e": "emergency_repair"}
-                if k in km: c.do_skill(km[k]); self.menu_state = "main"
+            elif k in "123456789":
+                idx = int(k) - 1
+                if idx < len(skill_list):
+                    c.do_skill(skill_list[idx])
+                    self.menu_state = "main"
             self._update_display()
 
     def _apply_outcome(self):

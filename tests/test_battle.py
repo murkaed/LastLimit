@@ -187,8 +187,8 @@ async def test_battle_items():
         await pilot.pause()
         assert screen.menu_state == "items"
 
-        # Press R for repair_kit
-        await pilot.press("r")
+        # Press 1 for repair_kit (first in BATTLE_CONSUMABLES)
+        await pilot.press("1")
         await pilot.pause()
         assert app.ship.hull > 50 or screen.menu_state == "main" or ctrl.over
 
@@ -220,9 +220,9 @@ async def test_battle_skills():
         await pilot.pause()
         assert screen.menu_state == "skills"
 
-        # Press E for emergency repair
+        # Press 3 for emergency_repair (third in BATTLE_SKILLS)
         initial_hull = ctrl.player.hull
-        await pilot.press("e")
+        await pilot.press("3")
         await pilot.pause()
         assert ctrl.player.hull >= initial_hull or ctrl.over
 

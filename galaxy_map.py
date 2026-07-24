@@ -16,6 +16,7 @@ from textual.app import App, ComposeResult
 from textual.containers import Container
 from textual.widgets import Static, Header, Footer
 from textual.reactive import reactive
+from rich.markup import escape
 from textual import events
 
 from game_logger import GameLogger, LogLevel, LogCategory, LogMessage, DetailLevel, CATEGORY_LABEL, CATEGORY_COLOR
@@ -37,6 +38,10 @@ from ui import (
     ActionMenu, SettingsScreen,
 )
 from battle import BattleScreen, BattleController
+from expedition import (
+    ExpeditionScreen, ExpeditionController,
+    create_quick_expedition_character, generate_quick_expedition_map,
+)
 
 # ---------------------------------------------------------------------------
 # Game state enum
@@ -327,6 +332,7 @@ class GalaxyMapApp(App):
                 "  ║                                                                  ║",
                 "  ║              [N] New Game                                        ║",
                 "  ║              [B] Quick Battle  (Training / Debug)                ║",
+                "  ║              [E] Quick Expedition  (Training / Debug)             ║",
                 "  ║              [H] Help                                            ║",
                 "  ║              [Q] Quit                                            ║",
                 "  ║                                                                  ║",
@@ -786,7 +792,7 @@ class GalaxyMapApp(App):
             if self._show_race_select:
                 self.query_one("#info-panel").update("Pick a race. 1-5 or Enter. 0=Back")
             else:
-                self.query_one("#info-panel").update("N=New Game  B=Quick Battle  H=Help  Q=Quit")
+                self.query_one("#info-panel").update("N=New Game  B=Quick Battle  E=Quick Expedition  H=Help  Q=Quit")
             self.query_one("#log").update("")
             return
         if self.state == GameState.HELP:
@@ -878,7 +884,7 @@ class GalaxyMapApp(App):
         """Обновляет виджет лога с учётом фильтра категорий и Rich-разметки."""
         # Фильтр через новый API логгера
         rendered = self.logger.render(n=8, category=self.log_category_filter)
-        filter_bar = f"[bold]Log:[/] [/{self._log_filter_label()}/]  [dim]Press [/][bold]/[/][dim] to filter[/dim]"
+        filter_bar = f"[bold]Log:[/] /{escape(self._log_filter_label())}/  [dim]Press [/][bold]/[/][dim] to filter[/dim]"
         self.query_one("#log").update(f"{filter_bar}\n{rendered}" if rendered else filter_bar)
 
     def _handle_log_command(self, p: list[str]):
@@ -2203,6 +2209,12 @@ class GalaxyMapApp(App):
                     enemy_ship = create_random_enemy()
                     ctrl = BattleController(player_ship, enemy_ship, app=None)
                     self.push_screen(BattleScreen(ctrl, quick_battle=True))
+                    return
+                if event.key in ("e", "E"):
+                    character = create_quick_expedition_character()
+                    expedition_map = generate_quick_expedition_map()
+                    ctrl = ExpeditionController(character, expedition_map)
+                    self.push_screen(ExpeditionScreen(ctrl, quick_expedition=True))
                     return
                 if event.key in ("h", "H"):
                     self._prev_state = self.state

@@ -20,8 +20,48 @@ from textual.widgets import Static
 
 from config import (
     GROUND_TILES, GROUND_ENEMIES, GROUND_WEAPONS, GROUND_ARMOR,
-    EXPEDITION_FOV_RADIUS, RESOURCES,
+    EXPEDITION_FOV_RADIUS, RESOURCES, CREW_NAMES, CREW_SPECIALTIES,
 )
+from models import CrewMember
+
+
+# ---------------------------------------------------------------------------
+# Quick Expedition generators
+# ---------------------------------------------------------------------------
+
+def create_quick_expedition_character():
+    """Создаёт случайного персонажа для быстрой высадки.
+
+    Returns:
+        CrewMember: член экипажа с базовым снаряжением.
+    """
+    name = random.choice(CREW_NAMES)
+    specialty = random.choice(list(CREW_SPECIALTIES.keys()))
+    member = CrewMember(name, specialty)
+    # Override ground combat stats for quick expedition
+    member.hp = 100
+    member.max_hp = 100
+    member.ap = 10
+    member.max_ap = 10
+    member.weapon = "rifle"
+    member.armor = "vest"
+    member.combat_skill = 60
+    member.inventory = {"repair_kit": 2}
+    return member
+
+
+def generate_quick_expedition_map(width=30, height=20):
+    """Генерирует случайную карту для быстрой высадки.
+
+    Args:
+        width: ширина карты.
+        height: высота карты.
+
+    Returns:
+        ExpeditionMap: готовая карта с комнатами, врагами и лутом.
+    """
+    site_type = random.choice(["station", "planet", "asteroid"])
+    return ExpeditionMap(width=width, height=height, site_type=site_type)
 
 # ---------------------------------------------------------------------------
 # ExpeditionMap — dungeon generator
@@ -651,16 +691,19 @@ class ExpeditionController:
 class ExpeditionScreen(Screen):
     """Экран Textual для отображения карты высадки, интерфейса и управления."""
 
-    def __init__(self, controller: ExpeditionController):
+    def __init__(self, controller: ExpeditionController, quick_expedition=False):
         """
         Инициализация экрана экспедиции.
 
         Аргументы:
             controller (ExpeditionController): контроллер высадки.
+            quick_expedition (bool): True — режим быстрой высадки (без корабля).
         """
         super().__init__()
         self.ctrl = controller                        # контроллер высадки
+        self.quick_expedition = quick_expedition      # режим быстрой высадки
         self._known = set()                           # исследованные (ранее виденные) тайлы
+        self._show_action_menu = False                # флаг открытого меню действий
 
     def compose(self):
         """Создаёт виджеты экрана.
@@ -759,9 +802,17 @@ class ExpeditionScreen(Screen):
         lines.append(f"── Controls ──")
         if ctrl.over:
             lines.append(f"  Mission over. Press any key to return.")
+        elif self._show_action_menu:
+            lines.append(f"  ┌─ Action ────────────┐")
+            lines.append(f"  │ 1 - Attack          │")
+            lines.append(f"  │ 2 - Heal            │")
+            lines.append(f"  │ 3 - Wait            │")
+            lines.append(f"  │ 4 - Open door       │")
+            lines.append(f"  │ 5 - Quit expedition │")
+            lines.append(f"  │ 0 - Cancel          │")
+            lines.append(f"  └─────────────────────┘")
         else:
-            lines.append(f"  Arrow keys / WASD = Move  A = Attack  U = Heal  W = Wait")
-            lines.append(f"  O = Open door  G = Pick up  Q = Quit expedition")
+            lines.append(f"  WASD/Arrows = Move  Space = Action menu")
 
         return "\n".join(lines)
 
@@ -783,8 +834,7 @@ class ExpeditionScreen(Screen):
     def on_key(self, event):
         """Обрабатывает нажатия клавиш для управления экспедицией.
 
-        Поддерживает: перемещение (стрелки/WASD), атаку (A),
-        лечение (U), открытие дверей (O), выход (Q).
+        WASD/стрелки = движение, Space = меню действий (1-9).
 
         Аргументы:
             event: событие нажатия клавиши.
@@ -797,7 +847,7 @@ class ExpeditionScreen(Screen):
 
         k = event.key
 
-        # Movement (arrow keys / vi-keys)
+        # ── Movement (always available) ──
         dx = dy = 0
         if k in ("up", "w", "W"):
             dy = -1
@@ -809,6 +859,8 @@ class ExpeditionScreen(Screen):
             dx = 1
 
         if dx != 0 or dy != 0:
+            if self._show_action_menu:
+                self._show_action_menu = False
             if ctrl.crew.ap > 0:
                 ctrl.move(dx, dy)
                 if ctrl.over:
@@ -819,42 +871,88 @@ class ExpeditionScreen(Screen):
             self._update()
             return
 
-        if k in ("u", "U"):
-            ctrl.heal()
-            if not ctrl.over:
-                ctrl.end_player_turn()
-            self._update()
-        elif k in ("o", "O"):
-            # Try to open door in facing direction
-            for dx, dy in [(0, -1), (0, 1), (-1, 0), (1, 0)]:
-                nx, ny = ctrl.px + dx, ctrl.py + dy
-                if ctrl.map.in_bounds(nx, ny) and ctrl.map.get_tile(nx, ny) == "door_closed":
-                    if ctrl.crew.ap >= 1:
-                        ctrl.map.set_tile(nx, ny, "door_open")
-                        ctrl.crew.ap -= 1
-                        ctrl.add_log("Opened door.")
-                        if not ctrl.over:
-                            ctrl.end_player_turn()
-                        break
+        # ── Action menu toggle ──
+        if k in (" ", "space", "enter"):
+            if self._show_action_menu:
+                self._show_action_menu = False
             else:
-                ctrl.add_log("No door to open.")
+                self._show_action_menu = True
             self._update()
-        elif k in ("q", "Q"):
-            ctrl.over = True
-            ctrl.victory = False
-            ctrl.add_log("Aborted expedition.")
+            return
+
+        # ── Menu choices (only when action menu is open) ──
+        if self._show_action_menu:
+            self._show_action_menu = False
+
+            if k == "1":
+                # Attack
+                ctrl.attack()
+                if not ctrl.over:
+                    ctrl.end_player_turn()
+            elif k == "2":
+                # Heal
+                ctrl.heal()
+                if not ctrl.over:
+                    ctrl.end_player_turn()
+            elif k == "3":
+                # Wait
+                ctrl.wait()
+                if not ctrl.over:
+                    ctrl.end_player_turn()
+            elif k == "4":
+                # Open door in facing direction
+                for dx, dy in [(0, -1), (0, 1), (-1, 0), (1, 0)]:
+                    nx, ny = ctrl.px + dx, ctrl.py + dy
+                    if ctrl.map.in_bounds(nx, ny) and ctrl.map.get_tile(nx, ny) == "door_closed":
+                        if ctrl.crew.ap >= 1:
+                            ctrl.map.set_tile(nx, ny, "door_open")
+                            ctrl.crew.ap -= 1
+                            ctrl.add_log("Opened door.")
+                            if not ctrl.over:
+                                ctrl.end_player_turn()
+                            break
+                else:
+                    ctrl.add_log("No door to open.")
+            elif k == "5":
+                # Quit expedition
+                ctrl.over = True
+                ctrl.victory = False
+                ctrl.add_log("Aborted expedition.")
+            # "0" or any other key — just close menu (do nothing)
             self._update()
+            return
 
     def _apply_outcome(self):
         """Применяет результаты экспедиции к глобальному состоянию.
 
-        При смерти — удаляет члена экипажа из ростера.
-        При возвращении — переносит инвентарь в грузовой отсек корабля
-        и восстанавливает HP.
+        В обычном режиме — удаляет члена экипажа из ростера при смерти
+        или переносит инвентарь в грузовой отсек корабля при возвращении.
+
+        В режиме быстрой высадки (quick_expedition=True) — только
+        выводит итоговую статистику, не трогая глобальные данные.
         """
         ctrl = self.ctrl
         app = self.app
         crew = ctrl.crew
+
+        if self.quick_expedition:
+            # Quick expedition mode — just show summary, no global side effects
+            killed = sum(1 for e in ctrl.map.enemies if not e.alive)
+            items = len(ctrl.map.crates)
+            if crew.hp <= 0:
+                outcome = f"☠ {crew.name} died after {ctrl.turn} turns."
+            elif ctrl.victory:
+                outcome = f"✓ Evacuated after {ctrl.turn} turns. Killed {killed} enemies."
+            else:
+                outcome = f"Aborted after {ctrl.turn} turns."
+            # Store result for display (used by dismiss handler)
+            self._quick_outcome = outcome
+            try:
+                self.app.notify(outcome, severity="information", timeout=5)
+            except Exception:
+                pass
+            return
+
         if crew.hp <= 0:
             # Permanent death: remove from crew roster
             name = crew.name
