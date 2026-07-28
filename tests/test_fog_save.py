@@ -171,11 +171,13 @@ async def test_f9_loads_game():
     app = GalaxyMapApp()
     async with app.run_test(size=(80, 44)) as pilot:
         await pilot.pause()
-        await pilot.press("1")
+        await pilot.press("1")  # New Game → mode
         await pilot.pause()
-        await pilot.press("1")  # Human
+        await pilot.press("1")  # Free Play → race
         await pilot.pause()
-        await pilot.press("1")  # Smuggler
+        await pilot.press("1")  # Human → origin
+        await pilot.pause()
+        await pilot.press("1")  # Smuggler → PLAYING
         await pilot.pause()
         # Move somewhere
         app.ctrl.player_x = 50
@@ -198,11 +200,13 @@ async def test_f10_toggles_fog():
     app = GalaxyMapApp()
     async with app.run_test(size=(80, 44)) as pilot:
         await pilot.pause()
-        await pilot.press("1")
+        await pilot.press("1")  # New Game → mode
         await pilot.pause()
-        await pilot.press("1")  # Human
+        await pilot.press("1")  # Free Play → race
         await pilot.pause()
-        await pilot.press("1")  # Smuggler
+        await pilot.press("1")  # Human → origin
+        await pilot.pause()
+        await pilot.press("1")  # Smuggler → PLAYING
         await pilot.pause()
         initial_fog = app.ctrl.fog_enabled
         await pilot.press("f10")
