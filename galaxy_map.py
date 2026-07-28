@@ -346,8 +346,10 @@ class GalaxyMapApp(App):
             if self.ctrl.state in (GameState.PLAYING, GameState.INSPECTING):
                 self.exit()
         elif event.key == "f5":
+            self.push_screen(CrewScreen())
+        elif event.key == "f6":
             self._do_save()
-        elif event.key == "f9":
+        elif event.key == "f7":
             self._do_load()
         elif event.key == "f10":
             self._toggle_fog()
@@ -366,11 +368,11 @@ class GalaxyMapApp(App):
         if self.ctrl.state != GameState.PLAYING:
             return
         self._saved_state = self.ctrl.save_state()
-        self.ctrl.logger.system("💾 Game saved (F9 to load).")
+        self.ctrl.logger.system("💾 Game saved (F7 to load).")
 
     def _do_load(self):
         if not hasattr(self, "_saved_state") or self._saved_state is None:
-            self.ctrl.logger.system("No save data. Press F5 to save first.")
+            self.ctrl.logger.system("No save data. Press F6 to save first.")
             return
         try:
             GameController.restore_from_state(self.ctrl, self._saved_state)
@@ -509,6 +511,14 @@ class GalaxyMapApp(App):
             self.update_info()
         elif k in ("f1", "F1"):
             self.push_screen(BridgeScreen())
+        elif k in ("f2", "F2"):
+            self.push_screen(EngineeringScreen())
+        elif k in ("f3", "F3"):
+            self.push_screen(TacticalScreen())
+        elif k in ("f4", "F4"):
+            self.push_screen(CargoScreen())
+        elif k in ("f5", "F5"):
+            self.push_screen(CrewScreen())
         # Inspect movement
         if self.ctrl.state == GameState.INSPECTING:
             if k in ("up", "w"):
@@ -564,6 +574,16 @@ class GalaxyMapApp(App):
                     if screen_name == "BattleScreen":
                         enemy = result[1]
                         self._initiate_battle(enemy)
+                    elif screen_name == "BridgeScreen":
+                        self.push_screen(BridgeScreen())
+                    elif screen_name == "EngineeringScreen":
+                        self.push_screen(EngineeringScreen())
+                    elif screen_name == "TacticalScreen":
+                        self.push_screen(TacticalScreen())
+                    elif screen_name == "CargoScreen":
+                        self.push_screen(CargoScreen())
+                    elif screen_name == "CrewScreen":
+                        self.push_screen(CrewScreen())
                     elif screen_name in SCREEN_MAP:
                         screen_cls = SCREEN_MAP[screen_name]
                         self.push_screen(screen_cls(result[1]))

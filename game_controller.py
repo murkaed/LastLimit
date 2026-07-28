@@ -930,7 +930,28 @@ class GameController:
                 nob = self.galaxy.objects.get((px + dx, py + dy))
                 if nob:
                     add(nob, px + dx, py + dy, dx, dy)
+        # ── Ship management (always available) ──
+        acts.append(("1", "🚢 Bridge (F1)", "bridge", "Ship"))
+        acts.append(("2", "⚙ Engineering (F2)", "engineering", "Ship"))
+        acts.append(("3", "🎯 Tactical (F3)", "tactical", "Ship"))
+        acts.append(("4", "📦 Cargo (F4)", "cargo", "Ship"))
+        acts.append(("5", "👥 Crew (F5)", "crew", "Ship"))
         return acts
+
+    def _act_bridge(self):
+        return ("BridgeScreen",)
+
+    def _act_engineering(self):
+        return ("EngineeringScreen",)
+
+    def _act_tactical(self):
+        return ("TacticalScreen",)
+
+    def _act_cargo(self):
+        return ("CargoScreen",)
+
+    def _act_crew_ship(self):
+        return ("CrewScreen",)
 
     def run_interaction(self, action_id):
         """Execute an interaction by action_id. Returns screen to push or None."""

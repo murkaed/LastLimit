@@ -146,8 +146,8 @@ class TestSaveLoad:
 # =============================================================================
 
 @pytest.mark.asyncio
-async def test_f5_saves_game():
-    """F5 saves the game state."""
+async def test_f6_saves_game():
+    """F6 saves the game state."""
     app = GalaxyMapApp()
     async with app.run_test(size=(80, 44)) as pilot:
         await pilot.pause()
@@ -160,14 +160,14 @@ async def test_f5_saves_game():
         await pilot.press("1")  # Smuggler → PLAYING
         await pilot.pause()
         # Save
-        await pilot.press("f5")
+        await pilot.press("f6")
         await pilot.pause()
         assert hasattr(app, "_saved_state")
 
 
 @pytest.mark.asyncio
-async def test_f9_loads_game():
-    """F9 loads previously saved state."""
+async def test_f7_loads_game():
+    """F7 loads previously saved state."""
     app = GalaxyMapApp()
     async with app.run_test(size=(80, 44)) as pilot:
         await pilot.pause()
@@ -181,7 +181,7 @@ async def test_f9_loads_game():
         await pilot.pause()
         # Move somewhere
         app.ctrl.player_x = 50
-        await pilot.press("f5")
+        await pilot.press("f6")
         await pilot.pause()
 
         # Move elsewhere
@@ -189,7 +189,7 @@ async def test_f9_loads_game():
         app.ctrl.ship.credits = 0
 
         # Load
-        await pilot.press("f9")
+        await pilot.press("f7")
         await pilot.pause()
         assert app.ctrl.player_x == 50  # restored
 
