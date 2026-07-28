@@ -49,19 +49,14 @@ class TestStartScreen:
     def test_start_screen_has_menu_options(self, ctrl):
         set_lang("en")
         result = ctrl.render_start_screen()
-        assert "[N]" in result or "New Game" in result
-        assert "[B]" in result or "Quick Battle" in result
-        assert "[H]" in result or "Help" in result
-        assert "[Q]" in result or "Quit" in result
+        assert "GAME MODE" in result or "Free Play" in result
+        assert "Campaign" in result or "Black Sun" in result
 
     def test_start_screen_has_menu_options_ru(self, ctrl):
         set_lang("ru")
         result = ctrl.render_start_screen()
-        assert "Новая игра" in result
-        assert "Быстрый бой" in result
-        assert "Помощь" in result
-        assert "Выйти" in result
-        set_lang("ru")
+        assert "GAME MODE" in result  # mode screen is English-only for now
+        assert "Free Play" in result or "Campaign" in result
 
     def test_show_race_select_enables_race_screen(self, ctrl):
         set_lang("en")
