@@ -879,7 +879,7 @@ class BattleScreen(Screen):
     #battle-grid {
         layout: grid;
         grid-size: 2 4;
-        grid-rows: 5 8 10 3;
+        grid-rows: 5 6 8 6;
         grid-columns: 1fr 1fr;
         height: 100%;
     }
@@ -893,11 +893,13 @@ class BattleScreen(Screen):
         border: solid blue;
         padding: 0 1;
         background: $surface;
+        overflow-y: auto;
     }
     #enemy-comps {
         border: solid red;
         padding: 0 1;
         background: $surface;
+        overflow-y: auto;
     }
     #battle-log {
         column-span: 2;
@@ -905,13 +907,14 @@ class BattleScreen(Screen):
         padding: 0 1;
         background: $surface;
         color: yellow;
-        height: 100%;
+        overflow-y: auto;
     }
     #menu-bar {
         column-span: 2;
         border: solid cyan;
         padding: 0 1;
         background: $surface;
+        overflow-y: auto;
     }
     """
 
@@ -988,7 +991,7 @@ class BattleScreen(Screen):
 
     def _update_log(self):
         c = self.ctrl
-        entries = c.log[-10:]
+        entries = c.log[-8:]
         if entries:
             lines = [f"  {entry}" for entry in entries]
         else:
