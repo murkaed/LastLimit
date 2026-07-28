@@ -879,7 +879,7 @@ class BattleScreen(Screen):
     #battle-grid {
         layout: grid;
         grid-size: 2 4;
-        grid-rows: 5 6 1fr 3;
+        grid-rows: 5 8 10 3;
         grid-columns: 1fr 1fr;
         height: 100%;
     }
@@ -988,7 +988,7 @@ class BattleScreen(Screen):
 
     def _update_log(self):
         c = self.ctrl
-        entries = c.log[-12:]
+        entries = c.log[-10:]
         if entries:
             lines = [f"  {entry}" for entry in entries]
         else:
