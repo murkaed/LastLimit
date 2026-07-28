@@ -685,7 +685,7 @@ class GameController:
         g = self.galaxy
         et = random.choice(["crusade", "invasion", "schism", "plague", "scandal", "treaty"])
         if et == "crusade":
-            g.add_news("⚔ CRUSADE!", "Imperium launches crusade against Chaos!"); out.append("[EVENT] Crusade!")
+            g.add_news("⚔ CRUSADE!", "Imperium launches crusade against Chaos!"); out.append(t("event.crusade"))
             if "chaos_cult" in g.diplomacy.get("imperium", {}):
                 g.diplomacy["imperium"]["chaos_cult"] = "war"
         elif et == "invasion":
@@ -693,23 +693,24 @@ class GameController:
             for _ in range(count):
                 x, y = g._random_passable()
                 g.pirates.append(PirateShip(x, y))
-            g.add_news(f"☠ RAID!", f"{count} pirate ships spawned in the sector."); out.append("[EVENT] Invasion!")
+            g.add_news(f"☠ RAID!", f"{count} pirate ships spawned in the sector."); out.append(t("event.invasion"))
         elif et == "schism":
             count = 0
             for s in g.stations:
                 if s.faction == "imperium" and random.random() < 0.3:
                     s.crisis_ticks = 10
                     count += 1
-            g.add_news("⛪ SCHISM!", f"Imperium church divided! {count} stations in crisis."); out.append("[EVENT] Schism!")
+            g.add_news("⛪ SCHISM!", f"Imperium church divided! {count} stations in crisis."); out.append(t("event.schism"))
         elif et == "plague":
-            t = random.choice(list(FACTIONS))
+            t_fac = random.choice(list(FACTIONS))
             count = 0
             for s in g.stations:
-                if s.faction == t:
+                if s.faction == t_fac:
                     s.crisis_ticks = 10
                     count += 1
-            name = FACTIONS.get(t, {}).get("name", t)
-            g.add_news(f"☣ PLAGUE at {name}!", f"{count} {name} stations quarantined."); out.append(f"[EVENT] Plague at {t}!")
+            name = FACTIONS.get(t_fac, {}).get("name", t_fac)
+            g.add_news(f"☣ PLAGUE at {name}!", f"{count} {name} stations quarantined.")
+            out.append(t("event.plague", faction=name))
         elif et == "scandal":
             f1, f2 = random.sample(list(FACTIONS), 2)
             if f2 in g.diplomacy.get(f1, {}):
@@ -718,7 +719,7 @@ class GameController:
                     g.diplomacy[f2][f1] = "war"
             name1 = FACTIONS.get(f1, {}).get("name", f1)
             name2 = FACTIONS.get(f2, {}).get("name", f2)
-            g.add_news(f"🔥 SCANDAL!", f"{name1} declares war on {name2}!"); out.append("[EVENT] Scandal!")
+            g.add_news(f"🔥 SCANDAL!", f"{name1} declares war on {name2}!"); out.append(t("event.scandal"))
         elif et == "treaty":
             f1, f2 = random.sample(list(FACTIONS), 2)
             if f2 in g.diplomacy.get(f1, {}):
@@ -727,7 +728,7 @@ class GameController:
                     g.diplomacy[f2][f1] = "truce"
             name1 = FACTIONS.get(f1, {}).get("name", f1)
             name2 = FACTIONS.get(f2, {}).get("name", f2)
-            g.add_news(f"☮ TREATY!", f"{name1} and {name2} sign truce."); out.append("[EVENT] Treaty!")
+            g.add_news(f"☮ TREATY!", f"{name1} and {name2} sign truce."); out.append(t("event.treaty"))
 
     def _check_random_events(self, out):
         if random.random() > 0.03:
@@ -744,12 +745,12 @@ class GameController:
                 t.cargo.add("relic", random.randint(1, 3))
                 t.cargo.add("electronics", random.randint(5, 15))
                 g.traders.append(t)
-            g.add_news("Caravan!", "Rare goods."); out.append("[EVENT] Caravan!")
+            g.add_news("Caravan!", "Rare goods."); out.append(t("event.caravan"))
         elif et == "raid":
             for _ in range(random.randint(2, 4)):
                 x, y = g._random_passable()
                 g.pirates.append(PirateShip(x, y))
-            g.add_news("Raid!", "Pirates."); out.append("[EVENT] Raid!")
+            g.add_news("Raid!", "Pirates."); out.append(t("event.raid"))
         elif et == "supernova" and g.black_holes:
             bh = random.choice(g.black_holes)
             if max(abs(self.player_x - bh[0]), abs(self.player_y - bh[1])) <= 10:
@@ -757,10 +758,10 @@ class GameController:
                 out.append("Supernova! Hull -10.")
                 if self.ship.hull <= 0:
                     self.death_cause = "Supernova."
-            g.add_news("Supernova!", "Star exploded!"); out.append("[EVENT] Supernova!")
+            g.add_news("Supernova!", "Star exploded!"); out.append(t("event.supernova"))
         elif et == "crisis":
             g.global_crisis_ticks = 10
-            g.add_news("Crisis!", "Prices -30%."); out.append("[EVENT] Crisis!")
+            g.add_news("Crisis!", "Prices -30%."); out.append(t("event.crisis"))
 
     # -------------------------------------------------------------------
     # Interactions
@@ -776,38 +777,38 @@ class GameController:
             if ot == "station" and dx == 0 and dy == 0:
                 st = self.galaxy.get_station_at(x, y)
                 tag = f"[{st.faction}]" if st else ""
-                acts.append(("r", f"(R)efuel-50cr {tag}", "refuel", f"Station {dn}"))
-                acts.append(("h", f"Repair(H)ull-30cr {tag}", "repair", f"Station {dn}"))
-                acts.append(("b", f"(B)uy/Sell {tag}", "trade", f"Station {dn}"))
+                acts.append(("r", t("iact.refuel", tag=tag), "refuel", f"Station {dn}"))
+                acts.append(("h", t("iact.repair", tag=tag), "repair", f"Station {dn}"))
+                acts.append(("b", t("iact.trade", tag=tag), "trade", f"Station {dn}"))
                 if st and st.stype == "temple" and self.ship.religion is None:
-                    acts.append(("j", f"(J)oin {st.name}", "religion", f"Temple {dn}"))
+                    acts.append(("j", t("iact.join", name=st.name), "religion", f"Temple {dn}"))
                 if st and st.modules_for_sale:
-                    acts.append(("p", f"Shop (P)arts [{len(st.modules_for_sale)} modules]", "modules_shop", f"Station {dn}"))
+                    acts.append(("p", t("iact.shop_parts", n=len(st.modules_for_sale)), "modules_shop", f"Station {dn}"))
                 if st and st.stype == "shipyard":
-                    acts.append(("y", f"(Y)ard — hulls/modules/upgrades", "shipyard", f"Shipyard {dn}"))
+                    acts.append(("y", t("iact.yard"), "shipyard", f"Shipyard {dn}"))
                 if st and st.stype == "workshop":
-                    acts.append(("k", f"Wor(K)shop — craft {len(st.recipes_available)} items", "workshop", f"Workshop {dn}"))
+                    acts.append(("k", t("iact.workshop", n=len(st.recipes_available)), "workshop", f"Workshop {dn}"))
                 if st and st.stype == "tavern":
-                    acts.append(("t", f"(T)avern — hire crew [{len(st.crew_for_hire)} available]", "tavern", f"Tavern {dn}"))
+                    acts.append(("t", t("iact.tavern", n=len(st.crew_for_hire)), "tavern", f"Tavern {dn}"))
                 if st and st.missions:
-                    acts.append(("v", f"Miss(V)ons [{len(st.missions)} available]", "missions", f"Station {dn}"))
+                    acts.append(("v", t("iact.missions", n=len(st.missions)), "missions", f"Station {dn}"))
             elif ot == "planet":
-                acts.append(("s", f"(S)can {ic} {nm}", "scan_planet", f"{nm} {dn}"))
-                acts.append(("l", f"(L)and {ic}", "land", f"{nm} {dn}"))
+                acts.append(("s", t("iact.scan_planet", icon=ic, name=nm), "scan_planet", f"{nm} {dn}"))
+                acts.append(("l", t("iact.land", icon=ic), "land", f"{nm} {dn}"))
             elif ot == "asteroids" and dx == 0 and dy == 0:
-                acts.append(("m", f"(M)ine {ic}", "mine", f"{nm} {dn}"))
+                acts.append(("m", t("iact.mine", icon=ic), "mine", f"{nm} {dn}"))
             elif ot == "wormhole" and dx == 0 and dy == 0:
-                acts.append(("u", f"(U)se Wormhole {ic}", "wormhole", f"{nm} {dn}"))
+                acts.append(("u", t("iact.wormhole", icon=ic), "wormhole", f"{nm} {dn}"))
 
         for t in self.galaxy.traders:
             if t.alive and max(abs(t.x - px), abs(t.y - py)) <= 1:
                 nn = self._direction_name(t.x - px, t.y - py) if (t.x != px or t.y != py) else ""
-                acts.append(("c", f"(C)hat {t.name}[{t.faction}]", "hail_npc", f"Trader {nn}"))
+                acts.append(("c", t("iact.chat", name=t.name, faction=t.faction), "hail_npc", f"Trader {nn}"))
         rng = self.ship.get_effective_stats().get("range", 1)
         for p in self.galaxy.pirates:
             if p.alive and max(abs(p.x - px), abs(p.y - py)) <= rng:
                 nn = self._direction_name(p.x - px, p.y - py) if (p.x != px or p.y != py) else ""
-                acts.append(("f", f"(F)ight {p.name} [{nn}]", "battle_pirate", f"Pirate {nn}"))
+                acts.append(("f", t("iact.fight", name=p.name, dir=nn), "battle_pirate", f"Pirate {nn}"))
 
         ob = self.galaxy.objects.get((px, py))
         if ob:
@@ -838,9 +839,9 @@ class GameController:
         if self.ship.credits >= 50:
             self.ship.credits -= 50
             self.ship.fuel = min(100, self.ship.fuel + 20)
-            self.logger.trade(f"Refuel +20. Fuel:{self.ship.fuel}")
+            self.logger.trade(t("log.refuel", fuel=self.ship.fuel))
         else:
-            self.logger.system("Need 50cr.")
+            self.logger.system(t("log.need_50cr"))
 
     def _act_repair(self):
         if self.ship.credits >= 30:
@@ -848,58 +849,58 @@ class GameController:
             max_hull = 100 + self.ship.get_effective_stats().get("hull_bonus", 0)
             o = self.ship.hull
             self.ship.hull = min(max_hull, self.ship.hull + 15)
-            self.logger.trade(f"Hull +{self.ship.hull - o}.")
+            self.logger.trade(t("log.hull_repaired", amount=self.ship.hull - o))
         else:
-            self.logger.system("Need 30cr.")
+            self.logger.system(t("log.need_30cr"))
 
     def _act_trade(self):
         st = self.galaxy.get_station_at(self.player_x, self.player_y)
         if st:
             return ("TradeScreen", st)
-        self.logger.system("No station.")
+        self.logger.system(t("log.no_station"))
 
     def _act_religion(self):
         st = self.galaxy.get_station_at(self.player_x, self.player_y)
         if not st or st.stype != "temple":
             return
         if self.ship.religion:
-            self.logger.system("Already have religion.")
+            self.logger.system(t("log.already_religion"))
             return
         if st.religion:
             self.ship.religion = st.religion
-            self.logger.system(f"Joined {st.religion}!")
+            self.logger.system(t("log.joined_religion", religion=st.religion))
         else:
-            self.logger.system("No doctrine.")
+            self.logger.system(t("log.no_doctrine"))
 
     def _act_modules_shop(self):
         st = self.galaxy.get_station_at(self.player_x, self.player_y)
         if st and st.modules_for_sale:
             return ("ModuleShopScreen", st)
-        self.logger.system("No modules for sale.")
+        self.logger.system(t("log.no_modules"))
 
     def _act_missions(self):
         st = self.galaxy.get_station_at(self.player_x, self.player_y)
         if st and st.missions:
             return ("MissionScreen", st)
-        self.logger.system("No missions.")
+        self.logger.system(t("log.no_missions_short"))
 
     def _act_shipyard(self):
         st = self.galaxy.get_station_at(self.player_x, self.player_y)
         if st and st.stype == "shipyard":
             return ("ShipyardScreen", st)
-        self.logger.system("No shipyard.")
+        self.logger.system(t("log.no_shipyard"))
 
     def _act_workshop(self):
         st = self.galaxy.get_station_at(self.player_x, self.player_y)
         if st and st.stype == "workshop":
             return ("CraftingScreen", st)
-        self.logger.system("No workshop.")
+        self.logger.system(t("log.no_workshop"))
 
     def _act_tavern(self):
         st = self.galaxy.get_station_at(self.player_x, self.player_y)
         if st and st.stype == "tavern":
             return ("HireScreen", st)
-        self.logger.system("No tavern.")
+        self.logger.system(t("log.no_tavern"))
 
     def _act_scan_planet(self):
         self.logger.exploration(
@@ -920,7 +921,7 @@ class GameController:
             self.ship.take_damage(-delta)
         if cid and not self.ship.cargo.add(cid, 2):
             msg += " (full)"
-        self.logger.exploration(f"Landed. {msg}")
+        self.logger.exploration(t("log.landed", msg=msg))
         if self.ship.hull <= 0:
             self.state = GameState.GAME_OVER
             self.death_cause = "Killed on planet."
@@ -930,11 +931,11 @@ class GameController:
             amt = random.randint(2, 6)
             if self.ship.cargo.add("ore", amt):
                 self.logger.exploration(
-                    f"Mined {amt} ore ({self.ship.cargo.used()}/{self.ship.cargo.capacity})")
+                    t("log.mined", amt=amt, used=self.ship.cargo.used(), cap=self.ship.cargo.capacity))
             else:
-                self.logger.exploration("Cargo full!")
+                self.logger.exploration(t("log.cargo_full"))
         else:
-            self.logger.exploration("Depleted.")
+            self.logger.exploration(t("log.depleted"))
 
     def _act_wormhole(self):
         if len(self.galaxy.wormholes) > 1:
@@ -942,10 +943,10 @@ class GameController:
             while o == (self.player_x, self.player_y):
                 o = random.choice(self.galaxy.wormholes)
             self.player_x, self.player_y = o
-            self.logger.exploration("Teleported!")
+            self.logger.exploration(t("log.teleported"))
             self.logger.new_turn()
         else:
-            self.logger.exploration("Collapse!")
+            self.logger.exploration(t("log.collapse"))
             px, py = self.player_x, self.player_y
             self.galaxy.tiles[py][px] = TILE_EMPTY
             self.galaxy.objects.pop((px, py), None)
@@ -961,14 +962,14 @@ class GameController:
             if p.alive and max(abs(p.x - self.player_x), abs(p.y - self.player_y)) <= 1:
                 self.logger.danger(f"Pirate {p.name}: 'Back off!'")
                 return
-        self.logger.system("No NPC.")
+        self.logger.system(t("log.no_npc"))
 
     def _act_battle_pirate(self):
         rng = self.ship.get_effective_stats().get("range", 1)
         for p in self.galaxy.pirates:
             if p.alive and max(abs(p.x - self.player_x), abs(p.y - self.player_y)) <= rng:
                 return ("BattleScreen", p)
-        self.logger.system("No pirate.")
+        self.logger.system(t("log.no_pirate"))
 
     # --- Colony ---
 
@@ -983,7 +984,7 @@ class GameController:
             site_type = TILE_TO_SITE.get(tile)
             site_name = f"{tile} at ({self.player_x},{self.player_y})"
         if not site_type:
-            self.logger.system("Nothing to land on here.")
+            self.logger.system(t("info.nothing_to_land"))
             return None
         return ("LandingPrepScreen", site_type, site_name)
 
@@ -996,19 +997,18 @@ class GameController:
     def found_colony(self):
         px, py = self.player_x, self.player_y
         if not self.galaxy.objects.get((px, py)) == "planet":
-            self.logger.system("Not on a planet tile.")
+            self.logger.system(t("info.not_on_planet"))
             return
         if (px, py) in self.galaxy.colonies:
-            self.logger.system("Colony already exists here! Press C to open it.")
+            self.logger.system(t("info.colony_exists"))
             return
         if not self.ship.cargo.has("colony_starter"):
-            self.logger.system("Need a Colony Starter Kit to found a colony! "
-                             "Craft one at a Workshop (metal:10, electronics:8, silicon:5, shield_mod:2).")
+            self.logger.system(t("info.need_colony_kit"))
             return
         planet_type = self.galaxy.planet_types.get((px, py), "temperate")
         planet_info = PLANET_TYPES.get(planet_type, {})
         if planet_info.get("orbit_only"):
-            self.logger.system(f"Cannot colonize {planet_info['name']} — orbit only.")
+            self.logger.system(t("info.cannot_colonize_orbit", name=planet_info["name"]))
             return
         self.ship.cargo.remove("colony_starter", 1)
         colony_name = f"Colony-{planet_info.get('name', planet_type)}"
@@ -1021,10 +1021,10 @@ class GameController:
         colony.colonists = 5
         colony.max_colonists = 5
         colony.place_building("command_center", center - 1, center - 1)
-        self.logger.system(f"🏗 Colony founded on {planet_info['name']} planet!")
-        self.logger.system("Press C to open colony surface.")
-        self.logger.system(f"Name: {colony_name}")
-        self.logger.system("Initial colonists: 5")
+        self.logger.system(t("log.colony_founded", planet=planet_info["name"]))
+        self.logger.system(t("log.colony_hint"))
+        self.logger.system(t("log.colony_name", name=colony_name))
+        self.logger.system(t("log.colony_initial", n=5))
 
     # -------------------------------------------------------------------
     # Helpers
@@ -1084,7 +1084,7 @@ class GameController:
         self.ship.regen_shields()
         failed = self.ship.fail_expired_missions(self.galaxy.news)
         for m in failed:
-            self.logger.system(f"⚠ Mission expired: {m.title}")
+            self.logger.system(t("log.mission_expired", title=m.title))
         nx, ny, evs, over = self.galaxy.tick(self.player_x, self.player_y, self.ship)
         self.player_x, self.player_y = nx, ny
         for ev in evs:
@@ -1103,9 +1103,9 @@ class GameController:
         dm = self.ship._last_damaged_module
         if dm:
             if dm.is_broken():
-                self.logger.danger(f"{dm.name} BROKEN! dur:0/{dm.max_durability}")
+                self.logger.danger(t("log.module_broken", name=dm.name, maxdur=dm.max_durability))
             else:
-                self.logger.danger(f"{dm.name} damaged! dur:{dm.durability}/{dm.max_durability}")
+                self.logger.danger(t("log.module_damaged", name=dm.name, dur=dm.durability, maxdur=dm.max_durability))
             self.ship._last_damaged_module = None
         pol_ev = []
         self._check_political_events(pol_ev)
