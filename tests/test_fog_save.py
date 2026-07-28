@@ -151,11 +151,13 @@ async def test_f5_saves_game():
     app = GalaxyMapApp()
     async with app.run_test(size=(80, 44)) as pilot:
         await pilot.pause()
-        await pilot.press("1")
+        await pilot.press("1")  # New Game → mode select
         await pilot.pause()
-        await pilot.press("1")  # Human
+        await pilot.press("1")  # Free Play → race select
         await pilot.pause()
-        await pilot.press("1")  # Smuggler
+        await pilot.press("1")  # Human → origin select
+        await pilot.pause()
+        await pilot.press("1")  # Smuggler → PLAYING
         await pilot.pause()
         # Save
         await pilot.press("f5")
