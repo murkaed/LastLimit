@@ -155,6 +155,8 @@ async def test_f5_saves_game():
         await pilot.pause()
         await pilot.press("1")  # Human
         await pilot.pause()
+        await pilot.press("1")  # Smuggler
+        await pilot.pause()
         # Save
         await pilot.press("f5")
         await pilot.pause()
@@ -170,6 +172,8 @@ async def test_f9_loads_game():
         await pilot.press("1")
         await pilot.pause()
         await pilot.press("1")  # Human
+        await pilot.pause()
+        await pilot.press("1")  # Smuggler
         await pilot.pause()
         # Move somewhere
         app.ctrl.player_x = 50
@@ -195,6 +199,8 @@ async def test_f10_toggles_fog():
         await pilot.press("1")
         await pilot.pause()
         await pilot.press("1")  # Human
+        await pilot.pause()
+        await pilot.press("1")  # Smuggler
         await pilot.pause()
         initial_fog = app.ctrl.fog_enabled
         await pilot.press("f10")
