@@ -36,12 +36,14 @@ from ui import (
     ShipyardScreen, CraftingScreen, HireScreen,
     ScanScreen, LandingPrepScreen,
     ActionMenu, SettingsScreen,
+    PlanetSurfaceScreen, BuildingMenu,
 )
 from battle import BattleScreen, BattleController
 from expedition import (
     ExpeditionScreen, ExpeditionController,
     create_quick_expedition_character, generate_quick_expedition_map,
 )
+from colony import ColonyManager, PLANET_TYPES
 
 # ---------------------------------------------------------------------------
 # Game state enum
@@ -216,7 +218,7 @@ class GalaxyMapApp(App):
         -------
         None
         """
-        models.NPCShip_id_counter = 0
+        models.npc_ids.reset()
         self.state = GameState.RACE_SELECT
         self.galaxy = Galaxy()
         self.ship = PlayerShip("Endeavour", 100)
@@ -1397,6 +1399,70 @@ class GalaxyMapApp(App):
             self.galaxy.objects.pop((px, py), None)
             self.galaxy.wormholes = [w for w in self.galaxy.wormholes if w != (px, py)]
 
+    # -----------------------------------------------------------------------
+    # Colony / Construction
+    # -----------------------------------------------------------------------
+
+    def _open_colony(self):
+        """Открывает экран колонии на текущей планете (если есть)."""
+        px, py = self.player_x, self.player_y
+        colony = self.galaxy.colonies.get((px, py))
+        if colony:
+            self.push_screen(PlanetSurfaceScreen(colony, px, py))
+
+    def _found_colony(self):
+        """Основать колонию на текущей планете.
+
+        Требует Colony Starter Kit в грузе.
+        """
+        px, py = self.player_x, self.player_y
+        if not self.galaxy.objects.get((px, py)) == "planet":
+            self.logger.system("Not on a planet tile.")
+            return
+
+        if (px, py) in self.galaxy.colonies:
+            self.logger.system("Colony already exists here! Press C to open it.")
+            return
+
+        # Check for colony starter kit
+        if not self.ship.cargo.has("colony_starter"):
+            self.logger.system("Need a Colony Starter Kit to found a colony! "
+                             "Craft one at a Workshop (metal:10, electronics:8, silicon:5, shield_mod:2).")
+            return
+
+        # Get planet type
+        planet_type = self.galaxy.planet_types.get((px, py), "temperate")
+        planet_info = PLANET_TYPES.get(planet_type, {})
+
+        if planet_info.get("orbit_only"):
+            self.logger.system(f"Cannot colonize {planet_info['name']} — orbit only.")
+            return
+
+        # Consume the starter kit
+        self.ship.cargo.remove("colony_starter", 1)
+
+        # Create colony
+        colony_name = f"Colony-{planet_info.get('name', planet_type)}"
+        colony = ColonyManager(colony_name, planet_type)
+        self.galaxy.colonies[(px, py)] = colony
+
+        # Auto-place command center at center of surface
+        center = SURFACE_SIZE // 2
+        # Give initial resources
+        colony.storage["metal"] = 10
+        colony.storage["electronics"] = 5
+        colony.storage["silicon"] = 3
+        colony.colonists = 5
+        colony.max_colonists = 5
+
+        # Place command center
+        colony.place_building("command_center", center - 1, center - 1)
+
+        self.logger.system(f"🏗 Colony founded on {planet_info['name']} planet!")
+        self.logger.system("Press C to open colony surface.")
+        self.logger.system(f"Name: {colony_name}")
+        self.logger.system("Initial colonists: 5")
+
     def _act_hail_npc(self):
         """Попытка установить контакт с NPC поблизости.
 
@@ -2318,6 +2384,15 @@ class GalaxyMapApp(App):
                 self.push_screen(TradeScreen(st))
         elif event.key in ("l", "L"):
             self._try_landing()
+        elif event.key in ("c", "C"):
+            px, py = self.player_x, self.player_y
+            if self.galaxy.objects.get((px, py)) == "planet":
+                if (px, py) in self.galaxy.colonies:
+                    self._open_colony()
+                else:
+                    self._found_colony()
+            else:
+                self.logger.system("Not on a planet tile.")
         elif event.key == "f":
             rng = self.ship.get_effective_stats().get("range", 1)
             closest = None

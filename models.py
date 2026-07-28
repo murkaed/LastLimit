@@ -1213,7 +1213,23 @@ class PlayerShip:
 # NPC ships
 # ---------------------------------------------------------------------------
 
-NPCShip_id_counter = 0
+class _NpcIdGen:
+    """Изолированный генератор уникальных ID для NPC-кораблей."""
+    __slots__ = ("_counter",)
+
+    def __init__(self):
+        self._counter = 0
+
+    def next(self) -> int:
+        self._counter += 1
+        return self._counter
+
+    def reset(self) -> None:
+        self._counter = 0
+
+
+npc_ids = _NpcIdGen()
+
 
 class NPCShip:
     """Базовый класс NPC-корабля.
@@ -1231,9 +1247,7 @@ class NPCShip:
             race: раса (если None — случайная).
             cc: вместимость грузового отсека.
         """
-        global NPCShip_id_counter
-        NPCShip_id_counter += 1
-        self.uid = NPCShip_id_counter  # уникальный идентификатор NPC
+        self.uid = npc_ids.next()  # уникальный идентификатор NPC
         self.x, self.y = x, y  # координаты на карте
         self.name = name  # название корабля
         self.hull = hull  # текущая прочность корпуса
@@ -2069,8 +2083,7 @@ class Galaxy:
 
     def reset_npc_counter(self):
         """Сбрасывает глобальный счётчик идентификаторов NPC (для тестов)."""
-        global NPCShip_id_counter
-        NPCShip_id_counter = 0
+        npc_ids.reset()
 
     # ---- World tick ----
 

@@ -6,7 +6,7 @@ import pytest
 from models import (
     CargoHold, ShipModule, PlayerShip, Station, Galaxy,
     NPCShip, PirateShip, TraderShip, CrewMember, Mission, ScanResult,
-    NPCShip_id_counter,
+    npc_ids,
 )
 from config import (
     RESOURCES, SHIP_MODULES, COMPARTMENTS, FACTIONS,
@@ -17,7 +17,7 @@ from config import (
 
 def _make_pirate(x=5, y=5):
     """Create a pirate manually (conftest 'pirate' fixture has arg mismatch)."""
-    NPCShip_id_counter = 0
+    npc_ids.reset()
     p = PirateShip(x, y)
     p.hull = 40
     p.max_hull = 40
@@ -27,7 +27,7 @@ def _make_pirate(x=5, y=5):
 
 def _make_trader(x=7, y=5, route=(0,)):
     """Create a trader manually with proper integer route."""
-    NPCShip_id_counter = 0
+    npc_ids.reset()
     t = TraderShip(x, y, list(route))
     t.hull = 60
     t.max_hull = 60
@@ -1497,7 +1497,7 @@ class TestNPCShip:
         assert pirate.race in RACES
 
     def test_npc_uid_unique(self):
-        NPCShip_id_counter = 0
+        npc_ids.reset()
         p1 = PirateShip(0, 0)
         p2 = PirateShip(0, 0)
         assert p1.uid != p2.uid

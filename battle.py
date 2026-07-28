@@ -604,12 +604,12 @@ class BattleController:
         if "hull" in eff:
             self.player.hull = min(self.player.max_hull, self.player.hull + eff["hull"])
             self.add_log(f"{info['name']}! Hull +{eff['hull']}.")
-        elif "shield" in eff:
+        if "shield" in eff:
             cap = self.player.get_effective_stats().get("shield_cap", 30)
-            old, s = self.player.shield_hp, self.player.shield_hp
+            old = self.player.shield_hp
             self.player.shield_hp = min(cap, self.player.shield_hp + eff["shield"])
             self.add_log(f"{info['name']}! Shield +{self.player.shield_hp - old}.")
-        elif "energy" in eff:
+        if "energy" in eff:
             old = self.player_energy
             self.player_energy = min(self.player_max_energy, self.player_energy + eff["energy"])
             self.add_log(f"{info['name']}! Energy +{self.player_energy - old}.")
