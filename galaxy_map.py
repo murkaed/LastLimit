@@ -433,14 +433,17 @@ class GalaxyMapApp(App):
 
     def _on_playing_key(self, event):
         k = event.key.lower()
-        # Block movement when interaction menu is active
         if self._interaction_active:
-            if k == "0":
+            if k == "0" or k == "escape":
                 self._interaction_active = False
                 self.update_map()
                 self.update_info()
+                event.stop()
                 return
-            return
+            if k.isdigit():
+                self._on_interaction_key(event)
+                return
+            return  # block movement and other keys
         if k in ("up", "w"):
             self._do_move(0, -1)
         elif k in ("down", "s"):
