@@ -558,7 +558,7 @@ class GalaxyMapApp(App):
         char = create_quick_expedition_character()
         emap = generate_quick_expedition_map()
         ectrl = ExpeditionController(char, emap)
-        self.push_screen(ExpeditionScreen(ectrl, quick_mode=True))
+        self.push_screen(ExpeditionScreen(ectrl, quick_expedition=True))
 
     # -------------------------------------------------------------------
     # Console
