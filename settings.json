@@ -1,6 +1,8 @@
 {
   "lang": "ru",
   "autosave": true,
+  "fog_of_war": false,
+  "fog_range": 5,
   "keys": {
     "move_up": "up",
     "move_down": "down",

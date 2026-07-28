@@ -80,6 +80,11 @@ class GameController:
         self.player_x = WIDTH // 2
         self.player_y = HEIGHT // 2
 
+        # Fog of war
+        self.fog_enabled = False
+        self.fog_range = 5
+        self.explored_tiles: set = set()
+
         # Callback for screen push requests (set by GalaxyMapApp)
         self._push_screen = None
         self._update_map = None
@@ -87,6 +92,7 @@ class GameController:
         self._update_log = None
 
         self._init_player_position()
+        self._discover_tiles()
 
     def set_callbacks(self, push_screen, update_map, update_info, update_log):
         """Set Textual callbacks from GalaxyMapApp."""
@@ -101,6 +107,18 @@ class GameController:
         while not self.galaxy.is_passable(self.player_x, self.player_y):
             self.player_x = random.randint(0, WIDTH - 1)
             self.player_y = random.randint(0, HEIGHT - 1)
+
+    def _discover_tiles(self):
+        """Mark tiles within fog_range as explored."""
+        if not self.fog_enabled:
+            return
+        r = self.fog_range
+        px, py = self.player_x, self.player_y
+        for dy in range(-r, r + 1):
+            for dx in range(-r, r + 1):
+                nx, ny = px + dx, py + dy
+                if 0 <= nx < self.galaxy.width and 0 <= ny < self.galaxy.height:
+                    self.explored_tiles.add((nx, ny))
 
     # -------------------------------------------------------------------
     # Race selection
@@ -146,7 +164,9 @@ class GameController:
         self._dismiss_handled_escape = False
         self.world_frozen = False
         self._interaction_active = False
+        self.explored_tiles = set()
         self._init_player_position()
+        self._discover_tiles()
 
     # ===================================================================
     # Rendering methods — all return strings
@@ -394,7 +414,11 @@ class GameController:
                 elif (x, y) in nc:
                     line += nc[(x, y)]
                 else:
-                    line += self.galaxy.get_tile(x, y)
+                    tile = self.galaxy.get_tile(x, y)
+                    if self.fog_enabled and (x, y) not in self.explored_tiles:
+                        line += '?'
+                    else:
+                        line += tile
             lines.append(line)
         return lines
 
@@ -1076,6 +1100,7 @@ class GameController:
         if moved > 0:
             self.ship.fuel = max(0, self.ship.fuel - 1)
             self.logger.movement(dn, self.player_x, self.player_y)
+            self._discover_tiles()
             return (True, self._pending_battle)
         return (False, None)
 
@@ -1087,6 +1112,7 @@ class GameController:
             self.logger.system(t("log.mission_expired", title=m.title))
         nx, ny, evs, over = self.galaxy.tick(self.player_x, self.player_y, self.ship)
         self.player_x, self.player_y = nx, ny
+        self._discover_tiles()
         for ev in evs:
             self._log_event(ev)
         npc_ev = []
@@ -1314,3 +1340,50 @@ class GameController:
                         self.logger.system(f"  T{i}: buy={bp} sell={sp}")
                     return
             self.logger.system(f"Station '{name}' not found.")
+
+    # -------------------------------------------------------------------
+    # Save / Load (within session)
+    # -------------------------------------------------------------------
+
+    def save_state(self) -> bytes:
+        """Pickle game state (excluding callbacks) for within-session save."""
+        import pickle
+        state = {
+            "galaxy": self.galaxy,
+            "ship": self.ship,
+            "logger": self.logger,
+            "state": self.state,
+            "player_x": self.player_x,
+            "player_y": self.player_y,
+            "race_selected": self.race_selected,
+            "_show_race_select": self._show_race_select,
+            "_politics_timer": self._politics_timer,
+            "death_cause": self.death_cause,
+            "fog_enabled": self.fog_enabled,
+            "fog_range": self.fog_range,
+            "explored_tiles": self.explored_tiles,
+            "log_category_filter": self.log_category_filter,
+            "log_filter_index": self.log_filter_index,
+        }
+        return pickle.dumps(state)
+
+    @staticmethod
+    def restore_from_state(ctrl: "GameController", data: bytes) -> None:
+        """Restore game state from pickled data into existing controller."""
+        import pickle
+        state = pickle.loads(data)
+        ctrl.galaxy = state["galaxy"]
+        ctrl.ship = state["ship"]
+        ctrl.logger = state["logger"]
+        ctrl.state = state["state"]
+        ctrl.player_x = state["player_x"]
+        ctrl.player_y = state["player_y"]
+        ctrl.race_selected = state["race_selected"]
+        ctrl._show_race_select = state.get("_show_race_select", False)
+        ctrl._politics_timer = state.get("_politics_timer", 0)
+        ctrl.death_cause = state.get("death_cause")
+        ctrl.fog_enabled = state.get("fog_enabled", False)
+        ctrl.fog_range = state.get("fog_range", 5)
+        ctrl.explored_tiles = state.get("explored_tiles", set())
+        ctrl.log_category_filter = state.get("log_category_filter")
+        ctrl.log_filter_index = state.get("log_filter_index", 0)

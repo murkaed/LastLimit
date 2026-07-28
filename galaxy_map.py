@@ -239,6 +239,12 @@ class GalaxyMapApp(App):
         from config import load_settings
         _cfg = load_settings()
         set_lang(_cfg.get("lang", "ru"))
+        # Load fog of war settings
+        self.ctrl.fog_enabled = _cfg.get("fog_of_war", False)
+        self.ctrl.fog_range = _cfg.get("fog_range", 5)
+        self.ctrl.explored_tiles = set()
+        if self.ctrl.fog_enabled:
+            self.ctrl._discover_tiles()
         self.update_map()
         self.update_info()
 
@@ -339,6 +345,41 @@ class GalaxyMapApp(App):
         elif event.key == "q":
             if self.ctrl.state in (GameState.PLAYING, GameState.INSPECTING):
                 self.exit()
+        elif event.key == "f5":
+            self._do_save()
+        elif event.key == "f9":
+            self._do_load()
+        elif event.key == "f10":
+            self._toggle_fog()
+
+    def _toggle_fog(self):
+        self.ctrl.fog_enabled = not self.ctrl.fog_enabled
+        if self.ctrl.fog_enabled:
+            self.ctrl.explored_tiles = set()
+            self.ctrl._discover_tiles()
+            self.ctrl.logger.system(f"🌫 Fog of War ON (range {self.ctrl.fog_range}).")
+        else:
+            self.ctrl.logger.system("🌫 Fog of War OFF.")
+        self.update_map()
+
+    def _do_save(self):
+        if self.ctrl.state != GameState.PLAYING:
+            return
+        self._saved_state = self.ctrl.save_state()
+        self.ctrl.logger.system("💾 Game saved (F9 to load).")
+
+    def _do_load(self):
+        if not hasattr(self, "_saved_state") or self._saved_state is None:
+            self.ctrl.logger.system("No save data. Press F5 to save first.")
+            return
+        try:
+            GameController.restore_from_state(self.ctrl, self._saved_state)
+        except Exception as e:
+            self.ctrl.logger.system(f"Load failed: {e}.")
+            return
+        self.update_map()
+        self.update_info()
+        self.ctrl.logger.system("📂 Game loaded.")
 
     def _on_race_select_key(self, event):
         k = event.key.lower()
