@@ -65,6 +65,7 @@ class TestStartScreen:
 
     def test_show_race_select_enables_race_screen(self, ctrl):
         set_lang("en")
+        ctrl._show_mode_select = False
         ctrl._show_race_select = True
         ctrl.state = GameState.RACE_SELECT
         result = ctrl.render_start_screen()
@@ -74,6 +75,7 @@ class TestStartScreen:
 
     def test_race_select_has_races(self, ctrl):
         set_lang("en")
+        ctrl._show_mode_select = False
         ctrl._show_race_select = True
         ctrl.state = GameState.RACE_SELECT
         result = ctrl.render_start_screen()
@@ -82,6 +84,7 @@ class TestStartScreen:
         assert "[0] Back" in result
 
     def test_race_select_back_returns_to_start(self, ctrl):
+        ctrl._show_mode_select = False
         ctrl._show_race_select = True
         ctrl.state = GameState.RACE_SELECT
         ctrl._show_race_select = False
