@@ -973,18 +973,32 @@ class BattleScreen(Screen):
             pd = c.player.compartments[comp]
             dest = c._player_comp_destroyed(comp)
             mods = [m for m in pd["modules"] if m.active and not m.is_broken()]
-            status = f"{len(mods)}m" if mods else (t("battle.inert") if dest else "OK")
             icon = "☠" if dest else " "
-            y_lines.append(f"  {icon} {comp:<14} {status}")
+            if mods:
+                parts = []
+                for m in mods:
+                    dur_bar = _bar_s(m.durability, m.max_durability, 5)
+                    parts.append(f"{m.name[:8]}[{dur_bar}]")
+                y_lines.append(f"  {icon}{comp:<12} {' '.join(parts)}")
+            else:
+                status = t("battle.inert") if dest else "--"
+                y_lines.append(f"  {icon}{comp:<12} {status}")
         self.query_one("#your-comps").update("\n".join(y_lines))
 
         e_lines = [f"  {t('battle.enemy_comps')}:"]
         for i, comp in enumerate(COMPARTMENTS):
             ed = c.enemy_comps[comp]
-            alive = [m for m in ed["modules"] if m.get("active") and m.get("dur", 0) > 0]
             n = f"[{i+1}]" if not c.over else "   "
-            status = f"{len(alive)}m" if alive else (t("battle.inert") if not ed["modules"] else "DESTROYED")
-            e_lines.append(f"  {n} {comp:<14} {status}")
+            alive = [m for m in ed["modules"] if m.get("active") and m.get("dur", 0) > 0]
+            if alive:
+                parts = []
+                for m in alive[:2]:
+                    dur_bar = _bar_s(m.get("dur", 0), m.get("max_dur", 1), 5)
+                    parts.append(f"{m['name'][:8]}[{dur_bar}]")
+                e_lines.append(f"  {n}{comp:<12} {' '.join(parts)}")
+            else:
+                status = t("battle.inert") if not ed["modules"] else "☠DESTROYED"
+                e_lines.append(f"  {n}{comp:<12} {status}")
         self.query_one("#enemy-comps").update("\n".join(e_lines))
 
     # ── Log (12 lines) ──
