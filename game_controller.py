@@ -377,9 +377,9 @@ class GameController:
         show = (self.state in (GameState.PLAYING, GameState.INSPECTING)
                 or self._interaction_active)
         nc = {}
-        for t in self.galaxy.traders:
-            if t.alive:
-                nc[(t.x, t.y)] = TILE_TRADER
+        for trader in self.galaxy.traders:
+            if trader.alive:
+                nc[(trader.x, trader.y)] = TILE_TRADER
         for p in self.galaxy.pirates:
             if p.alive:
                 nc[(p.x, p.y)] = TILE_PIRATE
@@ -740,11 +740,11 @@ class GameController:
                 x, y = g._random_passable()
                 rt = random.sample(range(len(g.stations)),
                                    min(3, len(g.stations))) if g.stations else []
-                t = TraderShip(x, y, rt)
-                t.cargo = CargoHold(100)
-                t.cargo.add("relic", random.randint(1, 3))
-                t.cargo.add("electronics", random.randint(5, 15))
-                g.traders.append(t)
+                trader = TraderShip(x, y, rt)
+                trader.cargo = CargoHold(100)
+                trader.cargo.add("relic", random.randint(1, 3))
+                trader.cargo.add("electronics", random.randint(5, 15))
+                g.traders.append(trader)
             g.add_news("Caravan!", "Rare goods."); out.append(t("event.caravan"))
         elif et == "raid":
             for _ in range(random.randint(2, 4)):
@@ -953,10 +953,10 @@ class GameController:
             self.galaxy.wormholes = [w for w in self.galaxy.wormholes if w != (px, py)]
 
     def _act_hail_npc(self):
-        for t in self.galaxy.traders:
-            if t.alive and max(abs(t.x - self.player_x), abs(t.y - self.player_y)) <= 1:
+        for trader in self.galaxy.traders:
+            if trader.alive and max(abs(trader.x - self.player_x), abs(trader.y - self.player_y)) <= 1:
                 self.logger.exploration(
-                    f"Trader {t.name}[{t.faction}]: Hull {t.hull}/{t.max_hull}")
+                    f"Trader {trader.name}[{trader.faction}]: Hull {trader.hull}/{trader.max_hull}")
                 return
         for p in self.galaxy.pirates:
             if p.alive and max(abs(p.x - self.player_x), abs(p.y - self.player_y)) <= 1:
