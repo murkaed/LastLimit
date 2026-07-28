@@ -214,11 +214,11 @@ RU = {
     "start.back": "Назад",
     "start.enter_human": "[Enter] Человек",
     "start.tagline": "В мрачной тьме далёкого будущего есть только война.",
-    "start.new_game": "[N] Новая игра",
-    "start.quick_battle": "[B] Быстрый бой  (Тренировка / Отладка)",
-    "start.quick_expedition": "[E] Быстрая высадка  (Тренировка / Отладка)",
-    "start.help": "[H] Помощь",
-    "start.quit": "[Q] Выйти",
+    "start.new_game": "[1] Новая игра",
+    "start.quick_battle": "[2] Быстрый бой  (Тренировка / Отладка)",
+    "start.quick_expedition": "[3] Быстрая высадка  (Тренировка / Отладка)",
+    "start.help": "[4] Помощь",
+    "start.quit": "[5] Выйти",
 
     # ── Help screen ──
     "help.title": "ПОМОЩЬ",
@@ -263,16 +263,16 @@ RU = {
 
     # ── Pause / Game Over ──
     "pause.title": "ПАУЗА",
-    "pause.continue": "C  —  Продолжить",
-    "pause.restart": "R  —  Заново",
-    "pause.quit": "Q  —  Выйти",
+    "pause.continue": "1 — Продолжить",
+    "pause.restart": "2 — Заново",
+    "pause.quit": "3 — Выйти",
     "gameover.title": "ИГРА ОКОНЧЕНА",
-    "gameover.restart": "R  —  Заново",
-    "gameover.quit": "Q  —  Выйти",
+    "gameover.restart": "1 — Заново",
+    "gameover.quit": "2 — Выйти",
 
     # ── Interaction menu ──
     "interact.title": "ДЕЙСТВИЯ",
-    "interact.close": "Esc=Закрыть",
+    "interact.close": "0=Закрыть",
 
     # ── Info panel ──
     "info.pick_race": "Выберите расу. 1-5 или Enter. 0=Назад",
@@ -307,21 +307,21 @@ RU = {
     "status.faction": "Фракция",
 
     # ── Interaction labels ──
-    "iact.refuel": "(R)Заправка-50cr {tag}",
-    "iact.repair": "Ремонт(H)улл-30cr {tag}",
-    "iact.trade": "(B)Торговля {tag}",
-    "iact.join": "(J)Вступить {name}",
-    "iact.shop_parts": "Магазин (P)астей [{n} модулей]",
-    "iact.yard": "(Y)Верфь — корпуса/модули/улучшения",
-    "iact.workshop": "Мастерс(K)ая — создать {n} предметов",
-    "iact.tavern": "(T)Таверна — нанять экипаж [{n} доступно]",
-    "iact.missions": "Мисс(V)ии [{n} доступно]",
-    "iact.scan_planet": "(S)Скан {icon} {name}",
-    "iact.land": "(L)Высадка {icon}",
-    "iact.mine": "(M)Добыча {icon}",
-    "iact.wormhole": "(U)Варп {icon}",
-    "iact.chat": "(C)Говорить {name}[{faction}]",
-    "iact.fight": "(F)Бой {name} [{dir}]",
+    "iact.refuel": "Заправка -50cr {tag}",
+    "iact.repair": "Ремонт корпуса -30cr {tag}",
+    "iact.trade": "Торговля {tag}",
+    "iact.join": "Вступить в {name}",
+    "iact.shop_parts": "Магазин запчастей [{n} модулей]",
+    "iact.yard": "Верфь — корпуса/модули/улучшения",
+    "iact.workshop": "Мастерская — создать {n} предметов",
+    "iact.tavern": "Таверна — нанять экипаж [{n} доступно]",
+    "iact.missions": "Миссии [{n} доступно]",
+    "iact.scan_planet": "Скан {icon} {name}",
+    "iact.land": "Высадка на {icon}",
+    "iact.mine": "Добыча {icon}",
+    "iact.wormhole": "Варп-врата {icon}",
+    "iact.chat": "Говорить с {name} [{faction}]",
+    "iact.fight": "Бой с {name} [{dir}]",
 
     # ── Events ──
     "event.crusade": "[СОБЫТИЕ] Крестовый поход!",
@@ -640,11 +640,11 @@ EN = {
     "start.back": "Back",
     "start.enter_human": "[Enter] Human",
     "start.tagline": "In the grim darkness of the far future, there is only war.",
-    "start.new_game": "[N] New Game",
-    "start.quick_battle": "[B] Quick Battle  (Training / Debug)",
-    "start.quick_expedition": "[E] Quick Expedition  (Training / Debug)",
-    "start.help": "[H] Help",
-    "start.quit": "[Q] Quit",
+    "start.new_game": "[1] New Game",
+    "start.quick_battle": "[2] Quick Battle  (Training / Debug)",
+    "start.quick_expedition": "[3] Quick Expedition  (Training / Debug)",
+    "start.help": "[4] Help",
+    "start.quit": "[5] Quit",
 
     # ── Help screen ──
     "help.title": "HELP",
@@ -689,16 +689,16 @@ EN = {
 
     # ── Pause / Game Over ──
     "pause.title": "PAUSED",
-    "pause.continue": "C  —  Continue",
-    "pause.restart": "R  —  Restart",
-    "pause.quit": "Q  —  Quit",
+    "pause.continue": "1 — Continue",
+    "pause.restart": "2 — Restart",
+    "pause.quit": "3 — Quit",
     "gameover.title": "GAME OVER",
-    "gameover.restart": "R  —  Restart",
-    "gameover.quit": "Q  —  Quit",
+    "gameover.restart": "1 — Restart",
+    "gameover.quit": "2 — Quit",
 
     # ── Interaction menu ──
     "interact.title": "ACTIONS",
-    "interact.close": "Esc=Close",
+    "interact.close": "0=Close",
 
     # ── Info panel ──
     "info.pick_race": "Pick a race. 1-5 or Enter. 0=Back",
@@ -733,21 +733,21 @@ EN = {
     "status.faction": "Faction",
 
     # ── Interaction labels ──
-    "iact.refuel": "(R)efuel-50cr {tag}",
-    "iact.repair": "Repair(H)ull-30cr {tag}",
-    "iact.trade": "(B)uy/Sell {tag}",
-    "iact.join": "(J)oin {name}",
-    "iact.shop_parts": "Shop (P)arts [{n} modules]",
-    "iact.yard": "(Y)ard — hulls/modules/upgrades",
-    "iact.workshop": "Wor(K)shop — craft {n} items",
-    "iact.tavern": "(T)avern — hire crew [{n} available]",
-    "iact.missions": "Miss(V)ons [{n} available]",
-    "iact.scan_planet": "(S)can {icon} {name}",
-    "iact.land": "(L)and {icon}",
-    "iact.mine": "(M)ine {icon}",
-    "iact.wormhole": "(U)se Wormhole {icon}",
-    "iact.chat": "(C)hat {name}[{faction}]",
-    "iact.fight": "(F)ight {name} [{dir}]",
+    "iact.refuel": "Refuel -50cr {tag}",
+    "iact.repair": "Repair Hull -30cr {tag}",
+    "iact.trade": "Buy/Sell {tag}",
+    "iact.join": "Join {name}",
+    "iact.shop_parts": "Shop Parts [{n} modules]",
+    "iact.yard": "Shipyard — hulls/modules/upgrades",
+    "iact.workshop": "Workshop — craft {n} items",
+    "iact.tavern": "Tavern — hire crew [{n} available]",
+    "iact.missions": "Missions [{n} available]",
+    "iact.scan_planet": "Scan {icon} {name}",
+    "iact.land": "Land on {icon}",
+    "iact.mine": "Mine {icon}",
+    "iact.wormhole": "Use Wormhole {icon}",
+    "iact.chat": "Chat with {name} [{faction}]",
+    "iact.fight": "Fight {name} [{dir}]",
 
     # ── Events ──
     "event.crusade": "[EVENT] Crusade!",

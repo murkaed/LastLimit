@@ -290,6 +290,8 @@ class GalaxyMapApp(App):
         if isinstance(self.screen, ExpeditionScreen):
             return
 
+        prev_state = self.ctrl.state  # capture before handlers modify it
+
         if self.ctrl.state == GameState.RACE_SELECT:
             self._on_race_select_key(event)
         elif self.ctrl.state == GameState.START_SCREEN:
@@ -303,8 +305,8 @@ class GalaxyMapApp(App):
         elif self._interaction_active:
             self._on_interaction_key(event)
 
-        # Global keys
-        if event.key == "escape" and self.ctrl.state in (
+        # Global keys — skip escape if it was already handled by pause handler
+        if event.key == "escape" and prev_state != GameState.PAUSED and self.ctrl.state in (
                 GameState.PLAYING, GameState.INSPECTING):
             if self._interaction_active:
                 self._interaction_active = False
@@ -353,26 +355,31 @@ class GalaxyMapApp(App):
 
     def _on_start_key(self, event):
         k = event.key.lower()
-        if k == "n":
+        if k == "1":
             self.ctrl._show_race_select = True
             self.ctrl.state = GameState.RACE_SELECT
             self.update_map()
             self.update_info()
-        elif k == "b":
+        elif k == "2":
             self._start_quick_battle()
-        elif k == "e":
+        elif k == "3":
             self._start_quick_expedition()
-        elif k == "h":
+        elif k == "4":
             self.ctrl.state = GameState.HELP
             self.update_map()
             self.update_info()
-        elif k == "q":
+        elif k == "5":
             self.exit()
 
     def _on_playing_key(self, event):
         k = event.key.lower()
         # Block movement when interaction menu is active
-        if self._interaction_active and k not in ("escape", "e"):
+        if self._interaction_active:
+            if k == "0":
+                self._interaction_active = False
+                self.update_map()
+                self.update_info()
+                return
             return
         if k in ("up", "w"):
             self._do_move(0, -1)
@@ -382,7 +389,7 @@ class GalaxyMapApp(App):
             self._do_move(-1, 0)
         elif k in ("right", "d"):
             self._do_move(1, 0)
-        elif k == "e":
+        elif k == "0":
             if self.ctrl.state == GameState.PLAYING:
                 self._interaction_active = True
                 self.ctrl.interaction_actions = self.ctrl.get_available_interactions()
@@ -454,32 +461,39 @@ class GalaxyMapApp(App):
 
     def _on_paused_key(self, event):
         k = event.key.lower()
-        if k == "c" or k == "escape":
+        if k == "1" or k == "c":
             self.ctrl.state = GameState.PLAYING
             self.update_map()
             self.update_info()
-        elif k == "r":
+        elif k == "escape":
+            self.ctrl.state = GameState.PLAYING
+            self.update_map()
+            self.update_info()
+            event.stop()  # prevent global escape handler from re-pausing
+        elif k == "2" or k == "r":
             self.restart_game()
-        elif k == "q":
+        elif k == "3" or k == "q":
             self.exit()
 
     def _on_game_over_key(self, event):
         k = event.key.lower()
-        if k == "r":
+        if k == "1" or k == "r":
             self.restart_game()
-        elif k == "q":
+        elif k == "2" or k == "q":
             self.exit()
 
     def _on_interaction_key(self, event):
         k = event.key.lower()
-        if k == "escape":
+        if k == "escape" or k == "0":
             self._interaction_active = False
             self.ctrl.state = GameState.PLAYING
             self.update_map()
             self.update_info()
             return
-        for key, label, action_id, _ in self.ctrl.interaction_actions:
-            if k == key:
+        if k.isdigit():
+            idx = int(k) - 1
+            if 0 <= idx < len(self.ctrl.interaction_actions):
+                _, label, action_id, _ = self.ctrl.interaction_actions[idx]
                 self._interaction_active = False
                 result = self.ctrl.run_interaction(action_id)
                 if isinstance(result, tuple):

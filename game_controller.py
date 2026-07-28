@@ -353,8 +353,8 @@ class GameController:
             "│" + t("interact.title").center(bw - 2) + "│",
             "├" + "─" * (bw - 2) + "┤",
         ]
-        for k, l, _, _ in acts:
-            clean = l[:bw - 8]
+        for i, (k, l, _, _) in enumerate(acts, 1):
+            clean = f"[{i}] {l}"[:bw - 8]
             ov.append(f"│  {clean:<{bw - 6}}  │")
         ov.append("├" + "─" * (bw - 2) + "┤")
         ov.append("│" + t("interact.close").center(bw - 2) + "│")
