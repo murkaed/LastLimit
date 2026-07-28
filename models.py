@@ -25,6 +25,7 @@ from config import (
     SHIP_HULLS, UPGRADES, RECIPES, CREW_SPECIALTIES, CREW_NAMES,
     STATION_TYPES, SCAN_SIGNAL_TYPES,
 )
+from colony import ColonyManager, random_planet_type
 
 # ---------------------------------------------------------------------------
 # Module-level constants
@@ -648,19 +649,30 @@ class PlayerShip:
         self.cargo.capacity = base_cap + cb
         # Re-init compartments and reinstall what fits
         self._init_compartments(cfg)
-        # Try to place excess modules
+        # Try to place old modules into new compartments
         leftover = []
         for m in all_modules:
-            if m.comp in self.compartments and len(self.compartments[m.comp]["modules"]) <= 1:
-                # Replace starter module with this one
-                existing = [x for x in self.compartments[m.comp]["modules"]]
-                if len(existing) == 1 and existing[0].id in ("fusion_reactor", "ion_drive",
-                        "deflector_shield", "long_range_scanner", "laser_turret"):
-                    self.compartments[m.comp]["modules"] = [m]
-                    placed = True
+            placed = False
+            if m.comp in self.compartments:
+                existing = self.compartments[m.comp]["modules"]
+                if len(existing) < 2:
+                    # Replace starter modules or fill empty slot
+                    if (len(existing) == 0 or
+                            (len(existing) == 1 and existing[0].id in (
+                                "fusion_reactor", "ion_drive", "deflector_shield",
+                                "long_range_scanner", "laser_turret"))):
+                        self.compartments[m.comp]["modules"] = [m]
+                        placed = True
             if not placed:
-                leftover.append(m)
-        return f"Switched to {cfg['name']}. {len(leftover)} modules moved to cargo (not implemented).", True
+                # Try to store in cargo by module id
+                if self.cargo.add(m.id, 1):
+                    leftover.append(f"{m.name} (→cargo)")
+                else:
+                    leftover.append(f"{m.name} (lost — cargo full)")
+        # Update shield to new hull's cap
+        self.shield_hp = min(self.shield_hp, self.get_effective_stats().get("shield_cap", 30))
+        moved_msg = ", ".join(leftover) if leftover else "all modules reinstalled"
+        return f"Switched to {cfg['name']}. {moved_msg}.", True
 
     # ---------- Permanent upgrades ----------
 
@@ -1702,13 +1714,15 @@ class Galaxy:
         self.width = width  # ширина карты
         self.height = height  # высота карты
         self.seed = seed if seed is not None else random.randint(0, 999999)  # сид генерации
-        random.seed(self.seed)
+        self._rng = random.Random(self.seed)  # локальный генератор (не портит глобальный random)
 
         self.tiles = [[TILE_EMPTY for _ in range(width)] for _ in range(height)]  # тайлы карты
         self.objects: dict = {}  # словарь (x,y) -> тип объекта
         self.stations: list[Station] = []  # список станций
         self.traders: list[TraderShip] = []  # список торговцев
         self.pirates: list[PirateShip] = []  # список пиратов
+        self.colonies: dict[tuple[int, int], ColonyManager] = {}  # колонии: (x,y) -> ColonyManager
+        self.planet_types: dict[tuple[int, int], str] = {}  # типы планет: (x,y) -> planet_type_id
         self.events_queue: list[GameEvent] = []  # очередь событий
         self.global_crisis_ticks = 0  # счётчик глобального кризиса
         self.diplomacy: dict = {}  # дипломатические отношения между фракциями
@@ -1749,10 +1763,10 @@ class Galaxy:
             Кортеж (x, y) с координатами.
         """
         for _ in range(500):
-            x, y = random.randint(0, self.width - 1), random.randint(0, self.height - 1)
+            x, y = self._rng.randint(0, self.width - 1), self._rng.randint(0, self.height - 1)
             if self.tiles[y][x] == TILE_EMPTY and (x, y) not in self.objects:
                 return x, y
-        return random.randint(0, self.width - 1), random.randint(0, self.height - 1)
+        return self._rng.randint(0, self.width - 1), self._rng.randint(0, self.height - 1)
 
     def _random_passable_near(self, obj_type, spread=5):
         """Ищет случайную проходимую клетку рядом с объектами указанного типа.
@@ -1767,9 +1781,9 @@ class Galaxy:
         cand = [p for p, o in self.objects.items() if o == obj_type]
         if not cand:
             return self._random_passable()
-        cx, cy = random.choice(cand)
+        cx, cy = self._rng.choice(cand)
         for _ in range(100):
-            dx, dy = random.randint(-spread, spread), random.randint(-spread, spread)
+            dx, dy = self._rng.randint(-spread, spread), self._rng.randint(-spread, spread)
             nx, ny = cx + dx, cy + dy
             if (0 <= nx < self.width and 0 <= ny < self.height
                     and self.tiles[ny][nx] == TILE_EMPTY):
@@ -1782,56 +1796,56 @@ class Galaxy:
         """Генерирует карту галактики: звёзды, планеты, станции, ЧД, червоточины, астероиды, NPC."""
         for y in range(self.height):
             for x in range(self.width):
-                if random.random() < 0.025:
+                if self._rng.random() < 0.025:
                     self.tiles[y][x] = TILE_STAR  # звезда
                     self.objects[(x, y)] = "star"
-                    if random.random() < 0.2:
+                    if self._rng.random() < 0.2:
                         px, py = self._nearby(x, y)
                         if self.tiles[py][px] == TILE_EMPTY:
                             self.tiles[py][px] = TILE_PLANET  # планета рядом со звездой
                             self.objects[(px, py)] = "planet"
+                            self.planet_types[(px, py)] = random_planet_type()
         for y in range(self.height):
             for x in range(self.width):
-                if self.tiles[y][x] == TILE_EMPTY and random.random() < 0.01:
+                if self.tiles[y][x] == TILE_EMPTY and self._rng.random() < 0.01:
                     self.tiles[y][x] = TILE_STATION  # станция
                     self.objects[(x, y)] = "station"
                     self.stations.append(Station(x, y))
         for _ in range(int(self.width * self.height * 0.0025)):
-            x, y = random.randint(0, self.width - 1), random.randint(0, self.height - 1)
+            x, y = self._rng.randint(0, self.width - 1), self._rng.randint(0, self.height - 1)
             if self.tiles[y][x] == TILE_EMPTY:
                 self.tiles[y][x] = TILE_BLACK_HOLE  # чёрная дыра
                 self.objects[(x, y)] = "black_hole"
         for _ in range(int(self.width * self.height * 0.0015)):
-            x, y = random.randint(0, self.width - 1), random.randint(0, self.height - 1)
+            x, y = self._rng.randint(0, self.width - 1), self._rng.randint(0, self.height - 1)
             if self.tiles[y][x] == TILE_EMPTY:
                 self.tiles[y][x] = TILE_WORMHOLE  # червоточина
                 self.objects[(x, y)] = "wormhole"
         for y in range(self.height):
             for x in range(self.width):
-                if self.tiles[y][x] == TILE_EMPTY and random.random() < 0.015:
+                if self.tiles[y][x] == TILE_EMPTY and self._rng.random() < 0.015:
                     self.tiles[y][x] = TILE_ASTEROIDS  # астероиды
                     self.objects[(x, y)] = "asteroids"
         # Replace generic ships with NPCs
         self.objects = {k: v for k, v in self.objects.items() if v != "ship"}
         # Traders
         if self.stations:
-            for _ in range(random.randint(8, 12)):
+            for _ in range(self._rng.randint(8, 12)):
                 x, y = self._random_passable()
-                route = random.sample(
+                route = self._rng.sample(
                     range(len(self.stations)),
-                    min(random.randint(3, 5), len(self.stations)),
+                    min(self._rng.randint(3, 5), len(self.stations)),
                 )
                 self.traders.append(TraderShip(x, y, route))
         # Pirates
-        for _ in range(random.randint(3, 5)):
+        for _ in range(self._rng.randint(3, 5)):
             x, y = self._random_passable_near("asteroids", 5)
             self.pirates.append(PirateShip(x, y))
         # Generate missions
         for s in self.stations:
             s.gen_missions(self.stations)
 
-    @staticmethod
-    def _nearby(x, y, md=2):
+    def _nearby(self, x, y, md=2):
         """Возвращает случайную точку рядом с указанными координатами.
 
         Args:
@@ -1842,8 +1856,8 @@ class Galaxy:
             Кортеж (x, y).
         """
         return (
-            max(0, min(WIDTH - 1, x + random.randint(-md, md))),
-            max(0, min(HEIGHT - 1, y + random.randint(-md, md))),
+            max(0, min(WIDTH - 1, x + self._rng.randint(-md, md))),
+            max(0, min(HEIGHT - 1, y + self._rng.randint(-md, md))),
         )
 
     # ---- Queries ----
@@ -2028,22 +2042,22 @@ class Galaxy:
         if not hasattr(target, "name"):
             return None
         from config import SCAN_SIGNAL_TYPES
-        sig_type = random.choice(list(SCAN_SIGNAL_TYPES))
+        sig_type = self._rng.choice(list(SCAN_SIGNAL_TYPES))
         cfg = SCAN_SIGNAL_TYPES[sig_type]
-        if random.random() * 100 > cfg["weight"]:
+        if self._rng.random() * 100 > cfg["weight"]:
             return None
         # Generate a title giver string
         giver_label = f"Scan: {cfg['title']} @ {target.name}"
         mission_types = cfg["missions"]
-        mt = random.choice(mission_types)
+        mt = self._rng.choice(mission_types)
         # Craft a simple mission
-        rid = random.choice(list(RESOURCES))
-        amt = random.randint(1, 5)
-        reward = amt * RESOURCES[rid]["base_price"] * random.randint(3, 6)
+        rid = self._rng.choice(list(RESOURCES))
+        amt = self._rng.randint(1, 5)
+        reward = amt * RESOURCES[rid]["base_price"] * self._rng.randint(3, 6)
         from config import FACTIONS
         target_station_name = target.name if hasattr(target, "name") else "Unknown"
         m = Mission(mt if mt in ("deliver", "bounty") else "deliver",
-                     rid, amt, target_station_name, reward, random.randint(20, 40),
+                     rid, amt, target_station_name, reward, self._rng.randint(20, 40),
                      title=f"{cfg['title']} @ {target.name}",
                      description=f"Discovered via {scan_type} scan of {target.name}.",
                      giver_station=giver_label)
@@ -2096,7 +2110,7 @@ class Galaxy:
                         if ps.hull <= 0:
                             return px, py, events, True
         # Asteroids
-        if self.tiles[py][px] == TILE_ASTEROIDS and random.random() < 0.3:
+        if self.tiles[py][px] == TILE_ASTEROIDS and self._rng.random() < 0.3:
             ps.take_damage(5)
             events.append("Asteroid -5!")
             if ps.hull <= 0:
@@ -2104,6 +2118,11 @@ class Galaxy:
         # Station economy
         for s in self.stations:
             s.update_economy()
+        # Colony ticks (only for player-visible colonies)
+        for (cx, cy), colony in list(self.colonies.items()):
+            colony_events = colony.tick()
+            for ce in colony_events:
+                events.append(f"[colony {colony.name}] {ce}")
         return px, py, events, False
 
     # ---- NPC step ----
@@ -2123,7 +2142,7 @@ class Galaxy:
             if not tg:
                 continue
             if t.x == tg.x and t.y == tg.y:
-                t.wait_ticks = random.randint(2, 5) if t.wait_ticks <= 0 else t.wait_ticks - 1
+                t.wait_ticks = self._rng.randint(2, 5) if t.wait_ticks <= 0 else t.wait_ticks - 1
                 if t.wait_ticks <= 0:
                     t.route_index += 1
                 continue
@@ -2154,7 +2173,7 @@ class Galaxy:
                                 break
                 else:
                     self._move_towards(p, tx, ty)
-            elif random.random() < 0.3:
+            elif self._rng.random() < 0.3:
                 self._random_move(p)
             if p.hull <= p.flee_threshold:
                 dx = px - p.x
@@ -2184,7 +2203,7 @@ class Galaxy:
         Args:
             npc: объект NPC.
         """
-        for dx, dy in random.sample([(1, 0), (-1, 0), (0, 1), (0, -1)], 4):
+        for dx, dy in self._rng.sample([(1, 0), (-1, 0), (0, 1), (0, -1)], 4):
             nx, ny = npc.x + dx, npc.y + dy
             if self.is_passable(nx, ny) and not self._occupied(nx, ny):
                 npc.x, npc.y = nx, ny
