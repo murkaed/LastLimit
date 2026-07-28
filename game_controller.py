@@ -70,7 +70,7 @@ class GameController:
         self._politics_timer = 0
         self.race_selected = False
         self._show_race_select = False
-        self._show_mode_select = True
+        self._show_mode_select = False
         self._show_origin_select = False
         self.game_mode = "free"
         self.origin = None
@@ -209,7 +209,7 @@ class GameController:
         self.interaction_actions = []
         self.race_selected = False
         self._show_race_select = False
-        self._show_mode_select = True
+        self._show_mode_select = False
         self._show_origin_select = False
         self.game_mode = "free"
         self.origin = None
@@ -234,6 +234,7 @@ class GameController:
             lines.append(f"  ┃  [{i}] {cfg['name']:<18}                               ┃")
             lines.append(f"  ┃      {cfg['desc']:<55}┃")
         lines.append("  ┃                                                         ┃")
+        lines.append("  ┃  [0] Back                                               ┃")
         lines.append("  ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛")
         return "\n".join(lines)
 

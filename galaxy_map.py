@@ -383,6 +383,18 @@ class GalaxyMapApp(App):
 
     def _on_race_select_key(self, event):
         k = event.key.lower()
+        # Mode selection (shown first when pressing "New Game")
+        if self.ctrl._show_mode_select:
+            if k in ("1", "2"):
+                self.ctrl.select_mode(k)
+                self.update_map()
+                self.update_info()
+            elif k == "0":
+                self.ctrl._show_mode_select = False
+                self.ctrl.state = GameState.START_SCREEN
+                self.update_map()
+                self.update_info()
+            return
         # Origin selection (shown after race is picked)
         if self.ctrl._show_origin_select:
             if k in ("1", "2", "3", "4", "5"):
@@ -403,24 +415,8 @@ class GalaxyMapApp(App):
 
     def _on_start_key(self, event):
         k = event.key.lower()
-        if self.ctrl._show_mode_select:
-            if k in ("1", "2"):
-                self.ctrl.select_mode(k)
-                self.update_map()
-                self.update_info()
-                return
-            # Allow help and quit during mode select
-            if k == "4":
-                self.ctrl.state = GameState.HELP
-                self.update_map()
-                self.update_info()
-                return
-            if k == "5":
-                self.exit()
-                return
-            return  # block other keys
         if k == "1":
-            self.ctrl._show_race_select = True
+            self.ctrl._show_mode_select = True
             self.ctrl.state = GameState.RACE_SELECT
             self.update_map()
             self.update_info()

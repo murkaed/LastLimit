@@ -7,6 +7,20 @@ from galaxy_map import GalaxyMapApp, GameState
 from models import PirateShip
 
 
+async def _start_game(pilot, app):
+    """Helper: go through full start flow (menu → mode → race → origin → PLAYING)."""
+    await pilot.pause()
+    await pilot.press("1")  # New Game → mode select
+    await pilot.pause()
+    await pilot.press("1")  # Free Play → race select
+    await pilot.pause()
+    await pilot.press("1")  # Human → origin select
+    await pilot.pause()
+    await pilot.press("1")  # Smuggler → PLAYING
+    await pilot.pause()
+    assert app.ctrl.state == GameState.PLAYING
+
+
 # =============================================================================
 # Start screen: 1-5 keys
 # =============================================================================
@@ -18,11 +32,11 @@ async def test_start_screen_keys_1_to_5():
     async with app.run_test(size=(80, 44)) as pilot:
         await pilot.pause()
         assert app.ctrl.state == GameState.START_SCREEN
-        # 1 → race select
+        # 1 → mode select
         await pilot.press("1")
         await pilot.pause()
         assert app.ctrl.state == GameState.RACE_SELECT
-        assert app.ctrl._show_race_select
+        assert app.ctrl._show_mode_select
 
 
 @pytest.mark.asyncio
@@ -42,20 +56,10 @@ async def test_start_screen_4_help():
 
 @pytest.mark.asyncio
 async def test_race_select_1_human():
-    """Pressing 1 in race select chooses Human and transitions to PLAYING."""
+    """Pressing 1-1-1-1 goes through full start flow → PLAYING."""
     app = GalaxyMapApp()
     async with app.run_test(size=(80, 44)) as pilot:
-        await pilot.pause()
-        # 1 → mode (Free Play), 1 → Human, 1 → Smuggler origin
-        await pilot.press("1")
-        await pilot.pause()
-        assert app.ctrl.state == GameState.RACE_SELECT  # now in race select
-        await pilot.press("1")
-        await pilot.pause()
-        assert app.ctrl._show_origin_select  # now in origin select
-        await pilot.press("1")
-        await pilot.pause()
-        assert app.ctrl.state == GameState.PLAYING
+        await _start_game(pilot, app)
         assert app.ship.race == "human"
 
 
@@ -79,12 +83,14 @@ async def test_race_select_enter_human():
     app = GalaxyMapApp()
     async with app.run_test(size=(80, 44)) as pilot:
         await pilot.pause()
-        await pilot.press("1")  # mode → Free Play
+        await pilot.press("1")  # New Game → mode select
         await pilot.pause()
-        await pilot.press("enter")  # Human race
+        await pilot.press("1")  # Free Play → race select
+        await pilot.pause()
+        await pilot.press("enter")  # Human race → origin select
         await pilot.pause()
         assert app.ctrl._show_origin_select
-        await pilot.press("1")  # Smuggler origin
+        await pilot.press("1")  # Smuggler origin → PLAYING
         await pilot.pause()
         assert app.ctrl.state == GameState.PLAYING
         assert app.ship.race == "human"
@@ -100,16 +106,17 @@ async def test_pause_1_continue():
     app = GalaxyMapApp()
     async with app.run_test(size=(80, 44)) as pilot:
         await pilot.pause()
-        # 1 = Mode, 1 = Human, 1 = Smuggler
+        # 1 (New Game) → mode select → 1 (Free Play) → 1 (Human) → 1 (Smuggler)
         await pilot.press("1")
         await pilot.pause()
-        assert app.ctrl.state == GameState.RACE_SELECT
-        await pilot.press("1")
+        assert app.ctrl.state == GameState.RACE_SELECT  # mode select screen
+        await pilot.press("1")  # Free Play
         await pilot.pause()
-        assert app.ctrl._show_origin_select
-        await pilot.press("1")
+        assert app.ctrl._show_race_select  # now race select
+        await pilot.press("1")  # Human
         await pilot.pause()
-        assert app.ctrl.state == GameState.PLAYING
+        assert app.ctrl._show_origin_select  # origin select
+        await _start_game(pilot, app)
 
         # Pause
         await pilot.press("escape")
@@ -132,9 +139,7 @@ async def test_pause_escape_continue():
         await pilot.pause()
         await pilot.press("1")  # Human
         await pilot.pause()
-        await pilot.press("1")  # Smuggler
-        await pilot.pause()
-        assert app.ctrl.state == GameState.PLAYING
+        await _start_game(pilot, app)
         # Pause
         await pilot.press("escape")
         await pilot.pause()
@@ -159,9 +164,7 @@ async def test_playing_0_opens_menu():
         await pilot.pause()
         await pilot.press("1")  # Human
         await pilot.pause()
-        await pilot.press("1")  # Smuggler
-        await pilot.pause()
-        assert app.ctrl.state == GameState.PLAYING
+        await _start_game(pilot, app)
 
         await pilot.press("0")
         await pilot.pause()
@@ -223,13 +226,7 @@ async def test_interaction_menu_0_closes():
     """Pressing 0 when menu is open closes it."""
     app = GalaxyMapApp()
     async with app.run_test(size=(80, 44)) as pilot:
-        await pilot.pause()
-        await pilot.press("1")
-        await pilot.pause()
-        await pilot.press("1")  # Human
-        await pilot.pause()
-        await pilot.press("1")  # Smuggler
-        await pilot.pause()
+        await _start_game(pilot, app)
         # Open menu manually
         app._interaction_active = True
         app.ctrl.interaction_actions = [
@@ -260,9 +257,7 @@ async def test_f1_opens_bridge():
         await pilot.pause()
         await pilot.press("1")  # Human
         await pilot.pause()
-        await pilot.press("1")  # Smuggler
-        await pilot.pause()
-        assert app.ctrl.state == GameState.PLAYING
+        await _start_game(pilot, app)
         from ui import BridgeScreen
         await pilot.press("f1")
         await pilot.pause()
@@ -386,13 +381,7 @@ async def test_help_h_key():
     """H key opens help screen."""
     app = GalaxyMapApp()
     async with app.run_test(size=(80, 44)) as pilot:
-        await pilot.pause()
-        await pilot.press("1")
-        await pilot.pause()
-        await pilot.press("1")  # Human
-        await pilot.pause()
-        await pilot.press("1")  # Smuggler
-        await pilot.pause()
+        await _start_game(pilot, app)
         await pilot.press("h")
         await pilot.pause()
         assert app.ctrl.state == GameState.HELP

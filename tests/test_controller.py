@@ -25,6 +25,7 @@ def ctrl():
 def playing_ctrl(ctrl):
     """Controller in PLAYING state with Human race and Smuggler origin."""
     ctrl._show_mode_select = True
+    ctrl.state = GameState.RACE_SELECT
     ctrl.select_mode("1")     # Free Play
     ctrl.select_race("1")     # Human
     ctrl.select_origin("1")   # Smuggler
@@ -43,20 +44,19 @@ class TestStartScreen:
     def test_start_screen_renders(self, ctrl):
         set_lang("en")
         result = ctrl.render_start_screen()
-        assert "GAME MODE" in result or "Free Play" in result
+        assert "[1]" in result  # main menu item
         assert len(result) > 100
 
     def test_start_screen_has_menu_options(self, ctrl):
         set_lang("en")
         result = ctrl.render_start_screen()
-        assert "GAME MODE" in result or "Free Play" in result
-        assert "Campaign" in result or "Black Sun" in result
+        assert "New Game" in result or "LAST" in result
 
     def test_start_screen_has_menu_options_ru(self, ctrl):
         set_lang("ru")
         result = ctrl.render_start_screen()
-        assert "GAME MODE" in result  # mode screen is English-only for now
-        assert "Free Play" in result or "Campaign" in result
+        assert "Новая игра" in result
+        set_lang("ru")
 
     def test_show_race_select_enables_race_screen(self, ctrl):
         set_lang("en")

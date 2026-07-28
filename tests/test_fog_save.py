@@ -222,6 +222,7 @@ def playing_ctrl():
     c = GameController()
     c.state = GameState.START_SCREEN
     c._show_mode_select = True
+    c.state = GameState.RACE_SELECT
     c.select_mode("1")    # Free Play
     c.select_race("1")    # Human
     c.select_origin("1")  # Smuggler
