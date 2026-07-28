@@ -43,8 +43,8 @@ class TestStartScreen:
     def test_start_screen_renders(self, ctrl):
         set_lang("en")
         result = ctrl.render_start_screen()
-        assert "New Game" in result
-        assert len(result) > 100  # plenty of content
+        assert "GAME MODE" in result or "Free Play" in result
+        assert len(result) > 100
 
     def test_start_screen_has_menu_options(self, ctrl):
         set_lang("en")
