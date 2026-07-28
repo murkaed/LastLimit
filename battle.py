@@ -878,8 +878,8 @@ class BattleScreen(Screen):
     CSS = """
     #battle-grid {
         layout: grid;
-        grid-size: 2 3;
-        grid-rows: 5 1fr 3;
+        grid-size: 2 4;
+        grid-rows: 5 6 1fr 3;
         grid-columns: 1fr 1fr;
         height: 100%;
     }
@@ -1005,7 +1005,11 @@ class BattleScreen(Screen):
             return
         ms = self.menu_state
         if ms == "main":
-            text = f"  [1]{t('battle.attack')}  [2]{t('battle.defend')}  [3]{t('battle.items')}  [4]{t('battle.skills')}  [5]{t('battle.escape')}  [6]{t('battle.reload')}"
+            text = (
+                f"  [1] {t('battle.attack')}   [2] {t('battle.defend')}   [3] {t('battle.items')}   "
+                f"[4] {t('battle.skills')}   [5] {t('battle.escape')}   [6] {t('battle.reload')}\n"
+                f"  {t('battle.energy')}: {c.player_energy}/{c.player_max_energy}"
+            )
         elif ms == "attack_weapon":
             lines = [f"  {t('battle.select_weapon')}:"]
             for i, w in enumerate(c._get_player_weapons()):
