@@ -574,6 +574,78 @@ STATION_TYPES = {
 
 
 # ---------------------------------------------------------------------------
+# Origins — character backgrounds for free play
+# ---------------------------------------------------------------------------
+
+ORIGINS = {
+    "smuggler": {
+        "name": "Smuggler",
+        "desc": "Knows the black market. Fast ship, everyone hates you.",
+        "hull_id": "shuttle",
+        "credits": 300,
+        "cargo": {"electronics": 5, "relic": 1},
+        "rep_bonus": {},
+        "perk": "contraband_vision",
+        "perk_desc": "Sees contraband tags on all trade screens",
+    },
+    "imperial_officer": {
+        "name": "Imperial Officer",
+        "desc": "Fleet veteran. Good standing with Imperium, free fuel.",
+        "hull_id": "corvette",
+        "credits": 800,
+        "cargo": {"metal": 10, "slug": 20},
+        "rep_bonus": {"imperium": 40},
+        "perk": "imperial_discount",
+        "perk_desc": "-20% prices at imperium stations, free refuel",
+    },
+    "trader": {
+        "name": "Free Trader",
+        "desc": "Neutral merchant. Starts rich, sees prices from afar.",
+        "hull_id": "freighter",
+        "credits": 1500,
+        "cargo": {"food": 10, "electronics": 5, "metal": 5},
+        "rep_bonus": {"free_traders": 50},
+        "perk": "market_vision",
+        "perk_desc": "Sees buy/sell prices of stations within 8 tiles",
+    },
+    "exile": {
+        "name": "Exile",
+        "desc": "Banished from home faction. Damaged ship, cheap crew.",
+        "hull_id": "shuttle",
+        "credits": 150,
+        "cargo": {"repair_kit": 2, "fuel_cell": 2},
+        "rep_bonus": {},
+        "perk": "cheap_crew",
+        "perk_desc": "Crew hire costs -40%, starting reputation penalties",
+    },
+    "explorer": {
+        "name": "Explorer",
+        "desc": "Deep-space scout. Powerful scanner, sees anomalies.",
+        "hull_id": "scout",
+        "credits": 400,
+        "cargo": {"fuel_cell": 5, "electronics": 3},
+        "rep_bonus": {},
+        "perk": "deep_scan",
+        "perk_desc": "Scanner range ×2, detects hidden signals",
+    },
+}
+
+# ---------------------------------------------------------------------------
+# Game modes
+# ---------------------------------------------------------------------------
+
+GAME_MODES = {
+    "free": {"name": "Free Play", "desc": "No main quest. Explore, trade, build."},
+    "campaign": {"name": "Campaign: Black Sun", "desc": "The Black Sun expands. Save the galaxy before it's too late."},
+}
+
+# Campaign config
+BLACK_SUN_SPEED = 40       # ticks between expansions
+BLACK_SUN_INITIAL_RADIUS = 3
+BLACK_SUN_CENTER_X = 40    # center of galaxy
+BLACK_SUN_CENTER_Y = 20
+
+# ---------------------------------------------------------------------------
 # Settings load/save
 # ---------------------------------------------------------------------------
 

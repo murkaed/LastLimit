@@ -23,11 +23,11 @@ def ctrl():
 
 @pytest.fixture
 def playing_ctrl(ctrl):
-    """Controller in PLAYING state with Human race."""
-    ctrl.state = GameState.START_SCREEN
-    ctrl._show_race_select = True
-    ctrl.state = GameState.RACE_SELECT
-    ctrl.select_race("1")  # Human
+    """Controller in PLAYING state with Human race and Smuggler origin."""
+    ctrl._show_mode_select = True
+    ctrl.select_mode("1")     # Free Play
+    ctrl.select_race("1")     # Human
+    ctrl.select_origin("1")   # Smuggler
     assert ctrl.state == GameState.PLAYING
     return ctrl
 
@@ -96,34 +96,41 @@ class TestStartScreen:
 
 class TestRaceSelection:
     def test_select_human(self, ctrl):
+        ctrl._show_mode_select = False
         ctrl.select_race("1")
         assert ctrl.ship.race == "human"
         assert ctrl.race_selected
-        assert ctrl.state == GameState.PLAYING
+        assert ctrl._show_origin_select  # now expects origin selection
 
     def test_select_mutant_by_name(self, ctrl):
+        ctrl._show_mode_select = False
         ctrl.select_race("mutant")
         assert ctrl.ship.race == "mutant"
-        assert ctrl.state == GameState.PLAYING
+        assert ctrl._show_origin_select
 
     def test_select_voidborn_by_number(self, ctrl):
+        ctrl._show_mode_select = False
         ctrl.select_race("5")
         assert ctrl.ship.race == "voidborn"
 
     def test_select_xenos_bio(self, ctrl):
+        ctrl._show_mode_select = False
         ctrl.select_race("xenos")
         assert ctrl.ship.race == "xenos_bio"
 
     def test_select_machine_cult(self, ctrl):
+        ctrl._show_mode_select = False
         ctrl.select_race("4")
         assert ctrl.ship.race == "machine_cult"
 
     def test_invalid_race_does_nothing(self, ctrl):
+        ctrl._show_mode_select = False
         ctrl.select_race("999")
         assert not ctrl.race_selected
         assert ctrl.state == GameState.START_SCREEN
 
     def test_empty_race_is_human(self, ctrl):
+        ctrl._show_mode_select = False
         ctrl.select_race("")
         assert ctrl.ship.race == "human"
 

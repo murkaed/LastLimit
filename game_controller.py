@@ -70,6 +70,10 @@ class GameController:
         self._politics_timer = 0
         self.race_selected = False
         self._show_race_select = False
+        self._show_mode_select = True
+        self._show_origin_select = False
+        self.game_mode = "free"
+        self.origin = None
         self.log_category_filter = None
         self.log_filter_index = 0
         self._prev_state = GameState.START_SCREEN
@@ -140,14 +144,59 @@ class GameController:
         self.ship.race = race_id
         self.ship.apply_race_bonus()
         race_name = RACES.get(race_id, {}).get("name", race_id)
-        self.logger.system(f"Race: {race_name}.")
+        self.logger.system(t("log.race_selected", race=race_name))
         self.race_selected = True
         self._show_race_select = False
-        self.state = GameState.PLAYING
+        self._show_origin_select = True
+        self.state = GameState.RACE_SELECT  # stays in race select screen, but shows origins
 
-    # -------------------------------------------------------------------
-    # Restart
-    # -------------------------------------------------------------------
+    def select_mode(self, choice):
+        """Select game mode: 1=Free Play, 2=Campaign."""
+        if choice == "1":
+            self.game_mode = "free"
+        elif choice == "2":
+            self.game_mode = "campaign"
+        else:
+            return
+        self._show_mode_select = False
+        self._show_race_select = True
+        self.state = GameState.RACE_SELECT
+
+    def select_origin(self, choice):
+        """Apply origin perks. 1=Smuggler, 2=Imperial Officer, 3=Trader, 4=Exile, 5=Explorer."""
+        from config import ORIGINS
+        origin_map = {
+            "1": "smuggler", "2": "imperial_officer", "3": "trader",
+            "4": "exile", "5": "explorer",
+        }
+        oid = origin_map.get(choice)
+        if not oid:
+            return
+        cfg = ORIGINS[oid]
+        self.origin = oid
+        # Apply ship hull
+        hull_cfg = SHIP_HULLS.get(cfg["hull_id"])
+        if hull_cfg:
+            self.ship.hull_id = cfg["hull_id"]
+            self.ship.max_hull = hull_cfg["hull"]
+            self.ship.hull = hull_cfg["hull"]
+            self.ship.name = f"{cfg['name']}-{random.randint(100,999)}"
+            self.ship._init_compartments(hull_cfg)
+        # Credits and cargo
+        self.ship.credits = cfg["credits"]
+        for rid, amt in cfg.get("cargo", {}).items():
+            self.ship.cargo.add(rid, amt)
+        # Reputation
+        for faction, bonus in cfg.get("rep_bonus", {}).items():
+            self.ship.reputation[faction] = self.ship.reputation.get(faction, 0) + bonus
+        # Exile penalty
+        if oid == "exile":
+            for f in FACTIONS:
+                self.ship.reputation[f] = self.ship.reputation.get(f, 0) - 20
+        self.ship.shield_hp = self.ship.get_effective_stats().get("shield_cap", 30)
+        self._show_origin_select = False
+        self.state = GameState.PLAYING
+        self.logger.system(f"Origin: {cfg['name']}. {cfg['perk_desc']}")
 
     def restart_game(self):
         models.npc_ids.reset()
@@ -160,6 +209,10 @@ class GameController:
         self.interaction_actions = []
         self.race_selected = False
         self._show_race_select = False
+        self._show_mode_select = True
+        self._show_origin_select = False
+        self.game_mode = "free"
+        self.origin = None
         self._pending_battle = None
         self._dismiss_handled_escape = False
         self.world_frozen = False
@@ -172,7 +225,39 @@ class GameController:
     # Rendering methods — all return strings
     # ===================================================================
 
+    def _render_mode_select(self):
+        from config import GAME_MODES
+        lines = ["", ""]
+        lines.append("  ┏━ CHOOSE GAME MODE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓")
+        for i, (mid, cfg) in enumerate(GAME_MODES.items(), 1):
+            lines.append(f"  ┃                                                         ┃")
+            lines.append(f"  ┃  [{i}] {cfg['name']:<18}                               ┃")
+            lines.append(f"  ┃      {cfg['desc']:<55}┃")
+        lines.append("  ┃                                                         ┃")
+        lines.append("  ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛")
+        return "\n".join(lines)
+
+    def _render_origin_select(self):
+        from config import ORIGINS
+        origin_ids = ["smuggler", "imperial_officer", "trader", "exile", "explorer"]
+        lines = ["", ""]
+        lines.append("  ┏━ CHOOSE YOUR ORIGIN ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓")
+        for i, oid in enumerate(origin_ids, 1):
+            oc = ORIGINS[oid]
+            lines.append(f"  ┃                                                         ┃")
+            lines.append(f"  ┃  [{i}] {oc['name']:<18}                               ┃")
+            lines.append(f"  ┃      Ship: {oc.get('hull_id','?')}  Credits: {oc['credits']}cr")
+            lines.append(f"  ┃      {oc['desc']:<55}┃")
+            lines.append(f"  ┃      Perk: {oc['perk_desc']:<53}┃")
+        lines.append("  ┃                                                         ┃")
+        lines.append("  ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛")
+        return "\n".join(lines)
+
     def render_start_screen(self):
+        if self._show_mode_select:
+            return self._render_mode_select()
+        if self._show_origin_select:
+            return self._render_origin_select()
         if self._show_race_select:
             lines = ["", ""]
             lines.append("  ┏━ CHOOSE YOUR RACE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓")

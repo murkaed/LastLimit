@@ -125,6 +125,8 @@ async def test_pause_escape_continue():
         await pilot.pause()
         await pilot.press("1")  # Human
         await pilot.pause()
+        await pilot.press("1")  # Smuggler
+        await pilot.pause()
         assert app.ctrl.state == GameState.PLAYING
         # Pause
         await pilot.press("escape")
@@ -150,6 +152,8 @@ async def test_playing_0_opens_menu():
         await pilot.pause()
         await pilot.press("1")  # Human
         await pilot.pause()
+        await pilot.press("1")  # Smuggler
+        await pilot.pause()
         assert app.ctrl.state == GameState.PLAYING
 
         await pilot.press("0")
@@ -167,6 +171,8 @@ async def test_playing_wasd_movement():
         await pilot.press("1")
         await pilot.pause()
         await pilot.press("1")  # Human
+        await pilot.pause()
+        await pilot.press("1")  # Smuggler
         await pilot.pause()
         old_x, old_y = app.player_x, app.player_y
 
@@ -193,6 +199,8 @@ async def test_playing_space_wait():
         await pilot.pause()
         await pilot.press("1")  # Human
         await pilot.pause()
+        await pilot.press("1")  # Smuggler
+        await pilot.pause()
         old_turn = app.logger.turn
         await pilot.press("space")
         await pilot.pause()
@@ -212,6 +220,8 @@ async def test_interaction_menu_0_closes():
         await pilot.press("1")
         await pilot.pause()
         await pilot.press("1")  # Human
+        await pilot.pause()
+        await pilot.press("1")  # Smuggler
         await pilot.pause()
         # Open menu manually
         app._interaction_active = True
@@ -243,6 +253,8 @@ async def test_f1_opens_bridge():
         await pilot.pause()
         await pilot.press("1")  # Human
         await pilot.pause()
+        await pilot.press("1")  # Smuggler
+        await pilot.pause()
         assert app.ctrl.state == GameState.PLAYING
         from ui import BridgeScreen
         await pilot.press("f1")
@@ -263,6 +275,8 @@ async def test_game_over_1_restarts():
         await pilot.press("1")
         await pilot.pause()
         await pilot.press("1")  # Human
+        await pilot.pause()
+        await pilot.press("1")  # Smuggler
         await pilot.pause()
         # Force game over
         app.ctrl.state = GameState.GAME_OVER
@@ -289,6 +303,8 @@ async def test_battle_keys_unchanged():
         await pilot.press("1")
         await pilot.pause()
         await pilot.press("1")  # Human
+        await pilot.pause()
+        await pilot.press("1")  # Smuggler
         await pilot.pause()
 
         pirate = PirateShip(app.player_x + 1, app.player_y)
@@ -325,6 +341,8 @@ async def test_slash_cycles_log_filter():
         await pilot.pause()
         await pilot.press("1")  # Human
         await pilot.pause()
+        await pilot.press("1")  # Smuggler
+        await pilot.pause()
         await pilot.press("/")
         await pilot.pause()
         assert True  # no crash
@@ -343,6 +361,8 @@ async def test_backtick_opens_console():
         await pilot.press("1")
         await pilot.pause()
         await pilot.press("1")  # Human
+        await pilot.pause()
+        await pilot.press("1")  # Smuggler
         await pilot.pause()
         from ui import CommandScreen
         await pilot.press("`")
@@ -363,6 +383,8 @@ async def test_help_h_key():
         await pilot.press("1")
         await pilot.pause()
         await pilot.press("1")  # Human
+        await pilot.pause()
+        await pilot.press("1")  # Smuggler
         await pilot.pause()
         await pilot.press("h")
         await pilot.pause()
