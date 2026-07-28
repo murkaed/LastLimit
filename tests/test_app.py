@@ -42,10 +42,13 @@ class TestAppCreate:
 
     def test_render_help(self):
         from game_controller import GameController
+        from locales import set_lang
+        set_lang("en")
         ctrl = GameController()
         result = ctrl.render_help_screen()
         assert "HELP" in result
         assert "MOVEMENT" in result
+        set_lang("ru")
 
 
 class TestRollHit:

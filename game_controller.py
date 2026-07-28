@@ -27,6 +27,7 @@ from models import PlayerShip, Galaxy, TraderShip, PirateShip, CargoHold, NPCShi
 import models
 from battle import BattleController
 from colony import ColonyManager, PLANET_TYPES, SURFACE_SIZE
+from locales import t
 
 # ---------------------------------------------------------------------------
 # Game state enum
@@ -207,56 +208,56 @@ class GameController:
 
     def render_help_screen(self):
         return (
-            "  ┏━ HELP ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n"
-            "  ┃                                                 ┃\n"
-            "  ┃  MOVEMENT:                                      ┃\n"
-            "  ┃    W/↑ N  A/← W  S/↓ S  D/→ E                  ┃\n"
-            "  ┃    Space = wait (advance time 1 turn)            ┃\n"
-            "  ┃                                                 ┃\n"
-            "  ┃  ACTIONS:                                       ┃\n"
-            "  ┃    E = interact with nearby objects              ┃\n"
-            "  ┃    F = engage turn-based battle with pirate         ┃\n"
-            "  ┃    I = inspect / free look around                ┃\n"
-            "  ┃    B = open trade screen (at station)            ┃\n"
-            "  ┃                                                 ┃\n"
-            "  ┃  SHIP MANAGEMENT:                               ┃\n"
-            "  ┃    F1 = Bridge (ship status + all subsystems)  ┃\n"
-            "  ┃                                                 ┃\n"
-            "  ┃  INTERFACE:                                     ┃\n"
-            "  ┃    H = help        N = news      ~ = console    ┃\n"
-            "  ┃    Esc = pause     Q = quit                     ┃\n"
-            "  ┃                                                 ┃\n"
-            "  ┃  CONSOLE COMMANDS (~):                          ┃\n"
-            "  ┃    scan / inv / give/take / refuel / set hull   ┃\n"
-            "  ┃    trade buy/sell / prices / market scan/history┃\n"
-            "  ┃    power <comp> <val> / modules list            ┃\n"
-            "  ┃    cargo / cargo jettison / cargo sellall       ┃\n"
-            "  ┃    reputation / diplomacy / declare war         ┃\n"
-            "  ┃    attack / hail / smuggle / news / exit        ┃\n"
-            "  ┃                                                 ┃\n"
-            "  ┃  FACTIONS: imperium chaos_cult xenos_horde      ┃\n"
-            "  ┃  machine_collective  free_traders void_covenant ┃\n"
-            "  ┃  RACES: human mutant xenos_bio machine_cult     ┃\n"
-            "  ┃         voidborn                                ┃\n"
-            "  ┃                                                 ┃\n"
-            "  ┃  Rep < -20 = trade blocked (use blackmarket)    ┃\n"
-            "  ┃  Contraband flagged per faction/religion        ┃\n"
-            "  ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛"
+            f"  ┏━ {t('help.title'):─^50} ┓\n"
+            f"  ┃ {'':47} ┃\n"
+            f"  ┃  {t('help.movement'):<47} ┃\n"
+            f"  ┃    {t('help.movement_keys'):<47} ┃\n"
+            f"  ┃    {t('help.wait'):<47} ┃\n"
+            f"  ┃ {'':47} ┃\n"
+            f"  ┃  {t('help.actions'):<47} ┃\n"
+            f"  ┃    {t('help.actions_e'):<47} ┃\n"
+            f"  ┃    {t('help.actions_f'):<47} ┃\n"
+            f"  ┃    {t('help.actions_i'):<47} ┃\n"
+            f"  ┃    {t('help.actions_b'):<47} ┃\n"
+            f"  ┃ {'':47} ┃\n"
+            f"  ┃  {t('help.ship_mgmt'):<47} ┃\n"
+            f"  ┃    {t('help.ship_f1'):<47} ┃\n"
+            f"  ┃ {'':47} ┃\n"
+            f"  ┃  {t('help.interface'):<47} ┃\n"
+            f"  ┃    {t('help.iface_keys'):<47} ┃\n"
+            f"  ┃    {t('help.iface_esc'):<47} ┃\n"
+            f"  ┃ {'':47} ┃\n"
+            f"  ┃  {t('help.console'):<47} ┃\n"
+            f"  ┃    {t('help.console_cmds'):<47} ┃\n"
+            f"  ┃    {t('help.console_trade'):<47} ┃\n"
+            f"  ┃    {t('help.console_power'):<47} ┃\n"
+            f"  ┃    {t('help.console_cargo'):<47} ┃\n"
+            f"  ┃    {t('help.console_rep'):<47} ┃\n"
+            f"  ┃    {t('help.console_attack'):<47} ┃\n"
+            f"  ┃ {'':47} ┃\n"
+            f"  ┃  {t('help.factions'):<47} ┃\n"
+            f"  ┃  {t('help.factions2'):<47} ┃\n"
+            f"  ┃  {t('help.races'):<47} ┃\n"
+            f"  ┃  {t('help.races2'):<47} ┃\n"
+            f"  ┃ {'':47} ┃\n"
+            f"  ┃  {t('help.rep_note'):<47} ┃\n"
+            f"  ┃  {t('help.contraband'):<47} ┃\n"
+            f"  ┗{'─' * 47}┛"
         )
 
     def render_news_screen(self):
         g = self.galaxy
         s = self.ship
         nt = ["┌" + "─" * 58 + "┐"]
-        nt.append("│" + "GALAXY NEWS".center(58) + "│")
+        nt.append("│" + t("news.title").center(58) + "│")
         nt.append("├" + "─" * 58 + "┤")
         if g.news:
-            nt.append("│" + "── Latest Reports ──".center(58) + "│")
+            nt.append("│" + t("news.latest").center(58) + "│")
             for e in g.news[-6:]:
                 tag = f"[T{e.turn}]"
                 nt.append(f"│ {tag:<6} {e.headline:<20}{e.body:<30}│")
         else:
-            nt.append("│  (no news)                                          │")
+            nt.append("│  " + t("news.no_news").center(56) + "│")
         nt.append("├" + "─" * 58 + "┤")
         wars = []
         truces = []
@@ -270,7 +271,7 @@ class GameController:
                         wars.append(entry)
                     elif rel in ("truce", "alliance"):
                         truces.append(entry)
-        nt.append("│" + "── Diplomacy ──".center(58) + "│")
+        nt.append("│" + t("news.diplomacy").center(58) + "│")
         if wars:
             for w in wars[:4]:
                 nt.append(f"│  ⚔ {w:<53}│")
@@ -278,17 +279,17 @@ class GameController:
             for tr in truces[:4]:
                 nt.append(f"│  ☮ {tr:<53}│")
         if not wars and not truces:
-            nt.append("│  (no active conflicts)                              │")
+            nt.append("│  " + t("news.no_conflicts").center(56) + "│")
         nt.append("├" + "─" * 58 + "┤")
-        nt.append("│" + "── Active Missions ──".center(58) + "│")
+        nt.append("│" + t("news.active_missions").center(58) + "│")
         if s.missions:
             for m in s.missions:
                 name = RESOURCES.get(m.resource, {}).get("name", m.resource)
                 nt.append(f"│  → {m.amount}x {name:<12} → {m.target_station:<15} +{m.reward}cr  │")
         else:
-            nt.append("│  (no active missions — visit stations for contracts)│")
+            nt.append("│  " + t("news.no_missions").center(56) + "│")
         nt.append("├" + "─" * 58 + "┤")
-        nt.append("│" + "── Market Snapshot (nearby) ──".center(58) + "│")
+        nt.append("│" + t("news.market").center(58) + "│")
         stations_near = g.stations_in_range(
             self.player_x, self.player_y, 15)
         if stations_near:
@@ -296,19 +297,19 @@ class GameController:
                 summary = st.price_summary()
                 nt.append(f"│  {summary[:56]}")
         else:
-            nt.append("│  (no stations within scan range)                    │")
+            nt.append("│  " + t("news.no_stations").center(56) + "│")
         nt.append("└" + "─" * 58 + "┘")
-        nt.append("  Press N or Esc to close")
+        nt.append("  " + t("news.close_hint"))
         return "\n".join(nt)
 
     def render_pause_overlay(self, map_lines):
         ov = [
             "", "  ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓",
-            "  ┃          PAUSED              ┃",
+            f"  ┃          {t('pause.title'):^12}              ┃",
             "  ┃                            ┃",
-            "  ┃    C  —  Continue             ┃",
-            "  ┃    R  —  Restart             ┃",
-            "  ┃    Q  —  Quit                 ┃",
+            f"  ┃    {t('pause.continue'):<26} ┃",
+            f"  ┃    {t('pause.restart'):<26} ┃",
+            f"  ┃    {t('pause.quit'):<26} ┃",
             "  ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛",
         ]
         lines = map_lines[:]
@@ -327,12 +328,12 @@ class GameController:
         lines = map_lines[:]
         ov = [
             "  ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓",
-            "  ┃         GAME OVER            ┃",
+            f"  ┃         {t('gameover.title'):^12}            ┃",
             "  ┃                            ┃",
             f"  ┃  {cause:^30}  ┃",
             "  ┃                            ┃",
-            "  ┃    R  —  Restart              ┃",
-            "  ┃    Q  —  Quit                 ┃",
+            f"  ┃    {t('gameover.restart'):<26} ┃",
+            f"  ┃    {t('gameover.quit'):<26} ┃",
             "  ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛",
         ]
         cy = len(lines) // 2 - len(ov) // 2
@@ -349,14 +350,14 @@ class GameController:
         bw = 50
         ov = [
             "┌" + "─" * (bw - 2) + "┐",
-            "│" + "ACTIONS".center(bw - 2) + "│",
+            "│" + t("interact.title").center(bw - 2) + "│",
             "├" + "─" * (bw - 2) + "┤",
         ]
         for k, l, _, _ in acts:
             clean = l[:bw - 8]
             ov.append(f"│  {clean:<{bw - 6}}  │")
         ov.append("├" + "─" * (bw - 2) + "┤")
-        ov.append("│" + "Esc=Close".center(bw - 2) + "│")
+        ov.append("│" + t("interact.close").center(bw - 2) + "│")
         ov.append("└" + "─" * (bw - 2) + "┘")
         cy = max(2, len(lines) // 2 - len(ov) // 2)
         for i, o in enumerate(ov):
@@ -492,7 +493,7 @@ class GameController:
 
     def _cargo_summary(self):
         if not self.ship.cargo.items:
-            return "Cargo: empty"
+            return t("info.cargo_empty")
         parts = [
             f"{RESOURCES.get(r, {}).get('name', r)}:{a}"
             for r, a in sorted(self.ship.cargo.items.items())
@@ -510,20 +511,20 @@ class GameController:
         """Returns (info_text, log_text) tuple for the current state."""
         if self.state in (GameState.RACE_SELECT, GameState.START_SCREEN):
             if self._show_race_select:
-                return ("Pick a race. 1-5 or Enter. 0=Back", "")
+                return (t("info.pick_race"), "")
             else:
-                return ("N=New Game  B=Quick Battle  E=Quick Expedition  H=Help  Q=Quit", "")
+                return (t("info.start_hint"), "")
         if self.state == GameState.HELP:
-            return ("H to return.", "")
+            return (t("info.help_return"), "")
         if self.state == GameState.NEWS:
-            return ("N to close.", "")
+            return (t("info.news_close"), "")
         if self._interaction_active:
-            return ("Select or Esc.", self.logger.render(10))
+            return (t("info.select_or_esc"), self.logger.render(10))
         if self.state == GameState.PAUSED:
-            return ("PAUSED", "")
+            return (t("info.paused"), "")
         if self.state == GameState.GAME_OVER:
             return (
-                f"☠ {self.death_cause or 'Destroyed.'}  R=Restart Q=Quit",
+                t("info.game_over", cause=self.death_cause or "Destroyed."),
                 self.logger.render(10),
             )
         if self.state == GameState.INSPECTING:
@@ -536,9 +537,9 @@ class GameController:
                 extra = f"\n{st.price_summary()}"
             npc = self.galaxy.get_npc_at(cx, cy)
             if npc:
-                extra = f"\nFaction:{npc.faction} Hull:{npc.hull}/{npc.max_hull}"
+                extra = f"\n{t('status.faction')}:{npc.faction} Hull:{npc.hull}/{npc.max_hull}"
             return (
-                f"Inspect: ({cx},{cy}) {desc}\nDist:{dist}{extra}",
+                t("info.inspect", x=cx, y=cy, desc=desc, dist=dist, extra=extra),
                 self.logger.render(10),
             )
 
@@ -553,7 +554,7 @@ class GameController:
         cval = self.ship.cargo.total_value()
         rep = self._reputation_summary()
         sl = self._get_ship_status()
-        sline = " | ".join(sl) if sl else "Nominal"
+        sline = " | ".join(sl) if sl else t("info.nominal")
         stn = self.galaxy.get_nearest_station(self.player_x, self.player_y, 1)
         econ = "│ " + stn.price_summary() + "\n" if stn else ""
 
@@ -593,7 +594,7 @@ class GameController:
     def _get_log_display(self):
         rendered = self.logger.render(n=8, category=self.log_category_filter)
         label = self._log_filter_label()
-        filter_bar = f"[bold]Log:[/] /{label}/  [dim]Press [/][bold]/[/][dim] to filter[/dim]"
+        filter_bar = f"[bold]{t('info.log_label')}[/] /{label}/  [dim]{t('info.log_filter_hint')}[/dim]"
         return f"{filter_bar}\n{rendered}" if rendered else filter_bar
 
     def handle_log_command(self, p: list[str]):
