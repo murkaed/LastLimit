@@ -1158,7 +1158,7 @@ class GameController:
         if self.state != GameState.PLAYING:
             return (False, None)
         dn = self._direction_name(dx, dy)
-        speed = max(1, self.ship.get_effective_stats().get("speed", 1))
+        speed = 1  # always 1 tile per key — speed bonuses used in combat only
         moved = 0
         for _ in range(speed):
             nx, ny = self.player_x + dx, self.player_y + dy
