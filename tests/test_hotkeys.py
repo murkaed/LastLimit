@@ -46,11 +46,13 @@ async def test_race_select_1_human():
     app = GalaxyMapApp()
     async with app.run_test(size=(80, 44)) as pilot:
         await pilot.pause()
-        # Open race select
+        # 1 → mode (Free Play), 1 → Human, 1 → Smuggler origin
         await pilot.press("1")
         await pilot.pause()
-        assert app.ctrl.state == GameState.RACE_SELECT
-        # Select Human
+        assert app.ctrl.state == GameState.RACE_SELECT  # now in race select
+        await pilot.press("1")
+        await pilot.pause()
+        assert app.ctrl._show_origin_select  # now in origin select
         await pilot.press("1")
         await pilot.pause()
         assert app.ctrl.state == GameState.PLAYING
@@ -63,7 +65,7 @@ async def test_race_select_0_back():
     app = GalaxyMapApp()
     async with app.run_test(size=(80, 44)) as pilot:
         await pilot.pause()
-        await pilot.press("1")
+        await pilot.press("1")  # mode
         await pilot.pause()
         assert app.ctrl.state == GameState.RACE_SELECT
         await pilot.press("0")
@@ -73,13 +75,16 @@ async def test_race_select_0_back():
 
 @pytest.mark.asyncio
 async def test_race_select_enter_human():
-    """Enter in race select chooses Human (default)."""
+    """Enter in race select chooses Human, origin → PLAYING."""
     app = GalaxyMapApp()
     async with app.run_test(size=(80, 44)) as pilot:
         await pilot.pause()
-        await pilot.press("1")  # open race select
+        await pilot.press("1")  # mode → Free Play
         await pilot.pause()
-        await pilot.press("enter")
+        await pilot.press("enter")  # Human race
+        await pilot.pause()
+        assert app.ctrl._show_origin_select
+        await pilot.press("1")  # Smuggler origin
         await pilot.pause()
         assert app.ctrl.state == GameState.PLAYING
         assert app.ship.race == "human"
@@ -95,11 +100,13 @@ async def test_pause_1_continue():
     app = GalaxyMapApp()
     async with app.run_test(size=(80, 44)) as pilot:
         await pilot.pause()
-        # 1 = New Game → race select
+        # 1 = Mode, 1 = Human, 1 = Smuggler
         await pilot.press("1")
         await pilot.pause()
         assert app.ctrl.state == GameState.RACE_SELECT
-        # Select Human
+        await pilot.press("1")
+        await pilot.pause()
+        assert app.ctrl._show_origin_select
         await pilot.press("1")
         await pilot.pause()
         assert app.ctrl.state == GameState.PLAYING
