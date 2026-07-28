@@ -59,7 +59,7 @@ class GameController:
     }
 
     def __init__(self):
-        self.state = GameState.RACE_SELECT
+        self.state = GameState.START_SCREEN
         self.galaxy = Galaxy()
         self.ship = PlayerShip("Endeavour", 100)
         self.logger = GameLogger()
@@ -133,7 +133,7 @@ class GameController:
 
     def restart_game(self):
         models.npc_ids.reset()
-        self.state = GameState.RACE_SELECT
+        self.state = GameState.START_SCREEN
         self.galaxy = Galaxy()
         self.ship = PlayerShip("Endeavour", 100)
         self.ship.shield_hp = self.ship.get_effective_stats().get("shield_cap", 30)
@@ -800,15 +800,15 @@ class GameController:
             elif ot == "wormhole" and dx == 0 and dy == 0:
                 acts.append(("u", t("iact.wormhole", icon=ic), "wormhole", f"{nm} {dn}"))
 
-        for t in self.galaxy.traders:
-            if t.alive and max(abs(t.x - px), abs(t.y - py)) <= 1:
-                nn = self._direction_name(t.x - px, t.y - py) if (t.x != px or t.y != py) else ""
-                acts.append(("c", t("iact.chat", name=t.name, faction=t.faction), "hail_npc", f"Trader {nn}"))
+        for trader in self.galaxy.traders:
+            if trader.alive and max(abs(trader.x - px), abs(trader.y - py)) <= 1:
+                nn = self._direction_name(trader.x - px, trader.y - py) if (trader.x != px or trader.y != py) else ""
+                acts.append(("c", t("iact.chat", name=trader.name, faction=trader.faction), "hail_npc", f"Trader {nn}"))
         rng = self.ship.get_effective_stats().get("range", 1)
-        for p in self.galaxy.pirates:
-            if p.alive and max(abs(p.x - px), abs(p.y - py)) <= rng:
-                nn = self._direction_name(p.x - px, p.y - py) if (p.x != px or p.y != py) else ""
-                acts.append(("f", t("iact.fight", name=p.name, dir=nn), "battle_pirate", f"Pirate {nn}"))
+        for pirate in self.galaxy.pirates:
+            if pirate.alive and max(abs(pirate.x - px), abs(pirate.y - py)) <= rng:
+                nn = self._direction_name(pirate.x - px, pirate.y - py) if (pirate.x != px or pirate.y != py) else ""
+                acts.append(("f", t("iact.fight", name=pirate.name, dir=nn), "battle_pirate", f"Pirate {nn}"))
 
         ob = self.galaxy.objects.get((px, py))
         if ob:
