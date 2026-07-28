@@ -631,9 +631,10 @@ class ExpeditionController:
 
             if d <= 1:
                 # Melee attack
-                hit_chance = min(95, e.accuracy - 5)  # player base evasion 5
+                defense = self.get_player_defense()
+                hit_chance = min(95, e.accuracy - defense)
                 if random.random() * 100 < hit_chance:
-                    dmg = max(1, e.dmg - self.get_player_defense())
+                    dmg = max(1, int(e.dmg * (1.0 - defense / 15.0)))
                     self.crew.hp -= dmg
                     self.add_log(f"☠ {e.name} hits! -{dmg} HP.")
                 else:

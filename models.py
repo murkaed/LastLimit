@@ -1385,9 +1385,15 @@ class Station:
                 self.crew_for_hire.append(CrewMember(name, spec))
 
     def _init_inventory(self):
-        """Заполняет начальный инвентарь станции случайными количествами ресурсов."""
-        for r in RESOURCES:
-            self.inventory[r] = random.randint(8, 25)
+        """Заполняет начальный инвентарь станции случайными количествами ресурсов.
+
+        Только торгуемые категории: raw, refined, advanced.
+        Расходники (repair_kit, shield_booster) и спецпредметы (colony_starter, relic)
+        продаются через специализированные станции или black market.
+        """
+        for r, info in RESOURCES.items():
+            if info.get("cat") in ("raw", "refined", "advanced"):
+                self.inventory[r] = random.randint(8, 25)
 
     def _init_modules(self):
         """Выбирает случайные модули для продажи на станции (исключая стартовые)."""
@@ -1826,8 +1832,6 @@ class Galaxy:
                 if self.tiles[y][x] == TILE_EMPTY and self._rng.random() < 0.015:
                     self.tiles[y][x] = TILE_ASTEROIDS  # астероиды
                     self.objects[(x, y)] = "asteroids"
-        # Replace generic ships with NPCs
-        self.objects = {k: v for k, v in self.objects.items() if v != "ship"}
         # Traders
         if self.stations:
             for _ in range(self._rng.randint(8, 12)):
@@ -2323,7 +2327,6 @@ def create_random_ship(is_player=True):
     )
     ship.hull_id = hull_id
     ship.max_hull = hull_cfg["hull"]
-    ship.name = f"{(hull_cfg['name'])}-{random.randint(100,999)}"
 
     # Пересоздаём отсеки под этот корпус
     ship._init_compartments(hull_cfg)

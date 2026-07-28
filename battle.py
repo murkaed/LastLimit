@@ -761,7 +761,7 @@ class BattleController:
             self.add_log(f"☠ {self.enemy.name} uses Repair Kit!")
             self._check_player_death(); return
         # Попытка побега при критическом уровне корпуса
-        elif hull_pct < 0.2 and random.random() < 0.4:
+        if hull_pct < 0.2 and random.random() < 0.4:
             if random.random() < 0.5:
                 self.add_log(f"☠ {self.enemy.name} fled!"); self.over = True; self.victory = True; return
         # Атака оружием или таран
@@ -795,6 +795,8 @@ class BattleController:
                             self.player.hull = max(0, self.player.hull - hull_dmg)
                             self.add_log(f"☠ {self.enemy.name} hull hit! -{hull_dmg}")
                     else:
+                        hull_dmg = _apply_armor_resist(hull_dmg, damage_type, armor=5)
+                        hull_dmg = _apply_comp_damage_mod(hull_dmg, damage_type, tcomp)
                         alive_mods = [m for m in target["modules"] if m.active and not m.is_broken()]
                         if alive_mods:
                             hit = random.choice(alive_mods)
