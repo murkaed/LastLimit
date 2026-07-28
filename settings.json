@@ -1,0 +1,19 @@
+{
+  "lang": "ru",
+  "autosave": true,
+  "keys": {
+    "move_up": "up",
+    "move_down": "down",
+    "move_left": "left",
+    "move_right": "right",
+    "interact": "e",
+    "inspect": "i",
+    "bridge": "f1",
+    "news": "n",
+    "help": "h",
+    "console": "`",
+    "land": "l",
+    "wait": "space",
+    "action_menu": "e"
+  }
+}

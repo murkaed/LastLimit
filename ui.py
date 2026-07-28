@@ -2214,3 +2214,532 @@ class SettingsScreen(Screen):
         save_settings(self._settings)
         from locales import set_lang; set_lang(self._settings["lang"])
         self.dismiss()
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Colony / Construction Screens
+# ═══════════════════════════════════════════════════════════════════════
+
+from colony import (
+    SURFACE_TILES, SURFACE_SIZE, BUILDING_DEFS, get_building_def,
+    ColonyManager, Building, ResourceNode,
+)
+
+
+class BuildingMenu(Screen):
+    """Меню строительства зданий в колонии.
+
+    Показывает список доступных зданий, их стоимость и описание.
+    Выбор здания возвращает его ID в родительский экран.
+    """
+
+    def __init__(self, colony: ColonyManager):
+        super().__init__()
+        self.colony = colony
+        self._categories = [
+            ("infrastructure", "Infrastructure"),
+            ("power", "Power"),
+            ("production", "Production"),
+            ("storage", "Storage"),
+            ("research", "Research"),
+            ("defense", "Defense"),
+        ]
+        self._selected = 0
+        self._filter_cat = None  # None = show all
+        self._result = None  # выбранный building_id
+
+    def compose(self):
+        yield Static(id="build-menu")
+
+    def on_mount(self):
+        self._refresh()
+
+    def _filtered_buildings(self) -> list[tuple[str, str, dict]]:
+        """Возвращает список (building_id, category, defn) с учётом фильтра."""
+        result = []
+        for bid, bdef in BUILDING_DEFS.items():
+            cat = bdef.get("category", "")
+            if self._filter_cat and cat != self._filter_cat:
+                continue
+            result.append((bid, cat, bdef))
+        return result
+
+    def _refresh(self):
+        colony = self.colony
+        all_buildings = self._filtered_buildings()
+        self._selected = min(self._selected, max(0, len(all_buildings) - 1))
+        lines = []
+        W = 64
+
+        lines.append("┌" + "─" * W + "┐")
+        lines.append("│" + "BUILD MENU".center(W) + "│")
+        lines.append("├" + "─" * W + "┤")
+
+        # Filter bar
+        filter_line = "│  [All] "
+        for cat_key, cat_name in self._categories:
+            marker = "■" if self._filter_cat == cat_key else " "
+            filter_line += f"[{marker}{cat_key[0].upper()}] {cat_name[:6]}  "
+        lines.append(filter_line[:W] + "│")
+        lines.append("├" + "─" * W + "┤")
+
+        if not all_buildings:
+            lines.append("│  (no buildings in this category)                 │")
+        else:
+            for i, (bid, cat, bdef) in enumerate(all_buildings):
+                sel = "▶" if i == self._selected else " "
+                name = bdef.get("name", bid)
+                cost_str = " ".join(f"{k}:{v}" for k, v in bdef.get("cost", {}).items())
+                pwr = bdef.get("power_consumption", 0)
+                pwr_str = f"⚡{pwr}" if pwr > 0 else f"+{abs(pwr)}⚡" if pwr < 0 else "   "
+                size = bdef.get("size", 1)
+                desc = bdef.get("desc", "")[:W - 30]
+                lines.append(f"│{sel}{name:<16} {pwr_str:>5}  sz:{size}  {cost_str:<20}│")
+                lines.append(f"│ {'':>2}  {desc:<{W-8}}│")
+            lines.append("├" + "─" * W + "┤")
+            # Show selected building cost check
+            if all_buildings:
+                _, _, bdef = all_buildings[self._selected]
+                lines.append(f"│  Colony: {colony.summary()['buildings']}/{colony.max_buildings_allowed()} buildings  "
+                            f"Storage: {sum(colony.storage.values())}/{colony.max_storage}       │")
+                # Can we afford it?
+                cost = bdef.get("cost", {})
+                can_afford = True
+                for rid, amt in cost.items():
+                    have = colony.storage.get(rid, 0)
+                    if have < amt:
+                        can_afford = False
+                        lines.append(f"│  Need {rid}: {have}/{amt}                           │")
+                if can_afford:
+                    lines.append(f"│  [Enter] Build — resources available              │")
+                else:
+                    lines.append(f"│  [Enter] Build — insufficient resources!          │")
+
+        lines.append("├" + "─" * W + "┤")
+        lines.append("│" + " [1-6] Filter  [↑↓] Select  [Enter] Build  [Esc] Cancel".center(W) + "│")
+        lines.append("└" + "─" * W + "┘")
+
+        self.query_one("#build-menu").update("\n".join(lines))
+
+    def on_key(self, event):
+        if event.key == "escape":
+            event.stop()
+            self.dismiss()
+            return
+        all_buildings = self._filtered_buildings()
+        if event.key == "up":
+            self._selected = (self._selected - 1) % max(1, len(all_buildings))
+            self._refresh()
+        elif event.key == "down":
+            self._selected = (self._selected + 1) % max(1, len(all_buildings))
+            self._refresh()
+        elif event.key == "enter" and all_buildings:
+            bid, _, _ = all_buildings[self._selected]
+            # Check cost
+            bdef = get_building_def(bid)
+            cost = bdef.get("cost", {})
+            can_afford = all(self.colony.storage.get(rid, 0) >= amt for rid, amt in cost.items())
+            if can_afford:
+                self._result = bid
+                self.dismiss()
+        elif event.key in "123456":
+            idx = int(event.key) - 1
+            if idx < len(self._categories):
+                cat_key, _ = self._categories[idx]
+                self._filter_cat = cat_key if self._filter_cat != cat_key else None
+                self._selected = 0
+                self._refresh()
+
+    def get_result(self) -> str | None:
+        """Возвращает выбранный building_id или None."""
+        return self._result
+
+
+class PlanetSurfaceScreen(Screen):
+    """Экран карты поверхности планеты с режимом строительства.
+
+    Показывает тайловую карту поверхности (SURFACE_SIZE x SURFACE_SIZE),
+    здания, ресурсные жилы. Позволяет:
+      - Перемещать курсор по карте
+      - Строить здания (открывает BuildingMenu)
+      - Осматривать здания/жилы
+      - Открывать интерфейс управления колонией
+      - Перемещать ресурсы на корабль (если есть космопорт)
+    """
+
+    def __init__(self, colony: ColonyManager, planet_x: int, planet_y: int):
+        super().__init__()
+        self.colony = colony
+        self.planet_x = planet_x  # координаты планеты на галактической карте
+        self.planet_y = planet_y
+        self._cam_x = 0  # камера — левый верхний угол
+        self._cam_y = 0
+        self._cursor_x = SURFACE_SIZE // 2  # курсор на карте
+        self._cursor_y = SURFACE_SIZE // 2
+        self._view_w = 25  # видимая ширина
+        self._view_h = 20  # видимая высота
+        self._mode = "view"  # "view" | "build" | "info"
+        self._pending_building = None  # building_id, который строится
+        self._message = ""
+
+    def compose(self):
+        yield Static(id="planet-surface")
+
+    def on_mount(self):
+        self._refresh()
+
+    def _refresh(self):
+        colony = self.colony
+        lines = []
+        W = 64
+
+        # ── Header ──
+        summary = colony.summary()
+        lines.append("┌" + "─" * W + "┐")
+        lines.append(f"│  {summary['name']:<20} Type: {summary['planet_type']:<12} "
+                     f"Buildings: {summary['buildings']}/{summary['max_buildings']:<4}│")
+        lines.append(f"│  Pop: {summary['colonists']}/{summary['max_colonists']}  "
+                     f"Happiness: {summary['happiness']}%  "
+                     f"Power: {summary['power']}  "
+                     f"Storage: {summary['storage_used']}/{summary['max_storage']}     │")
+        lines.append("├" + "─" * W + "┤")
+
+        # ── Surface map ──
+        for row_y in range(self._cam_y, min(self._cam_y + self._view_h, SURFACE_SIZE)):
+            line = "│ "
+            for col_x in range(self._cam_x, min(self._cam_x + self._view_w, SURFACE_SIZE)):
+                # Check cursor
+                if col_x == self._cursor_x and row_y == self._cursor_y:
+                    ch = self._get_tile_char(col_x, row_y)
+                    # Highlight cursor
+                    t = SURFACE_TILES.get(ch, {})
+                    display = t.get("ch", " ")
+                    line += f"[reverse]{display}[/]"
+                else:
+                    ch = self._get_tile_char(col_x, row_y)
+                    t = SURFACE_TILES.get(ch, {})
+                    display = t.get("ch", " ")
+                    line += display
+            # Shorten if needed
+            line = line[:W - 1]
+            line += "│"
+            lines.append(line)
+
+        # ── Info line ──
+        lines.append("├" + "─" * W + "┤")
+        cx, cy = self._cursor_x, self._cursor_y
+        tile_name = SURFACE_TILES.get(self._get_tile_char(cx, cy), {}).get("name", "?")
+        building = colony.get_building_at(cx, cy)
+        node = colony.get_resource_node_at(cx, cy)
+        info_parts = [f"({cx},{cy}) {tile_name}"]
+        if building:
+            info_parts.append(f"  [{building.name} Lv{building.level}]")
+        if node:
+            info_parts.append(f"  [{node.resource_id}: {node.remaining}/{node.total}]")
+        lines.append(f"│  {'  '.join(info_parts):<{W-4}}│")
+
+        # ── Storage ──
+        lines.append(colony.storage_summary()[:W])
+
+        # ── Message ──
+        if self._message:
+            lines.append(f"│  {self._message:<{W-4}}│")
+            self._message = ""
+
+        # ── Footer ──
+        lines.append("├" + "─" * W + "┤")
+        lines.append(f"│  [B] Build  [S] Ship cargo  [C] Colonists  [R] Remove  "
+                     f"[I] Info{'':>8}│")
+        lines.append(f"│  [↑↓←→] Move cursor  [Esc] Return to galaxy{'':>22}│")
+        lines.append("└" + "─" * W + "┘")
+
+        self.query_one("#planet-surface").update("\n".join(lines))
+
+    def _get_tile_char(self, x: int, y: int) -> str:
+        """Возвращает тип тайла по координатам."""
+        if 0 <= y < len(self.colony.surface) and 0 <= x < len(self.colony.surface[y]):
+            return self.colony.surface[y][x]
+        return "void"
+
+    def _scroll_to(self, x: int, y: int):
+        """Прокручивает камеру, чтобы (x, y) было видно."""
+        if x < self._cam_x:
+            self._cam_x = max(0, x - 2)
+        elif x >= self._cam_x + self._view_w - 2:
+            self._cam_x = min(SURFACE_SIZE - self._view_w, x - self._view_w + 4)
+        if y < self._cam_y:
+            self._cam_y = max(0, y - 2)
+        elif y >= self._cam_y + self._view_h - 2:
+            self._cam_y = min(SURFACE_SIZE - self._view_h, y - self._view_h + 4)
+
+    def on_key(self, event):
+        event.stop()
+        colony = self.colony
+
+        if event.key == "escape":
+            self.dismiss()
+            return
+
+        # Movement on the surface
+        dx = dy = 0
+        if event.key in ("up", "w"):
+            dy = -1
+        elif event.key in ("down", "s"):
+            dy = 1
+        elif event.key in ("left", "a"):
+            dx = -1
+        elif event.key in ("right", "d"):
+            dx = 1
+        elif event.key == "b":
+            self._open_build_menu()
+            return
+        elif event.key == "r":
+            self._remove_building()
+            return
+        elif event.key == "i":
+            self._show_info()
+            return
+        elif event.key == "s":
+            self._transfer_to_ship()
+            return
+        elif event.key == "c":
+            self._manage_colonists()
+            return
+
+        if dx != 0 or dy != 0:
+            nx = max(0, min(SURFACE_SIZE - 1, self._cursor_x + dx))
+            ny = max(0, min(SURFACE_SIZE - 1, self._cursor_y + dy))
+            self._cursor_x = nx
+            self._cursor_y = ny
+            self._scroll_to(nx, ny)
+            self._refresh()
+
+    def _open_build_menu(self):
+        """Открывает меню строительства и обрабатывает результат."""
+        menu = BuildingMenu(self.colony)
+        self.app.push_screen(menu, self._on_build_result)
+
+    def _on_build_result(self, building_id: str | None):
+        """Callback после выбора здания в BuildingMenu."""
+        if not building_id:
+            self._refresh()
+            return
+        self._pending_building = building_id
+        self._mode = "build"
+        self._message = f"Select position for '{BUILDING_DEFS.get(building_id, {}).get('name', building_id)}' and press Enter. Esc to cancel."
+        self._refresh()
+
+    def _place_building(self):
+        """Размещает здание в текущей позиции курсора."""
+        if not self._pending_building:
+            return
+        building_id = self._pending_building
+        bdef = get_building_def(building_id)
+        cost = bdef.get("cost", {})
+
+        # Check resources
+        for rid, amt in cost.items():
+            if self.colony.storage.get(rid, 0) < amt:
+                self._message = f"Not enough {rid}! Need {amt}, have {self.colony.storage.get(rid, 0)}."
+                self._pending_building = None
+                self._mode = "view"
+                self._refresh()
+                return
+
+        # Place building
+        ok, reason = self.colony.can_place_building(building_id, self._cursor_x, self._cursor_y)
+        if not ok:
+            self._message = f"Can't build: {reason}"
+            self._refresh()
+            return
+
+        # Deduct resources
+        for rid, amt in cost.items():
+            self.colony.storage[rid] = self.colony.storage.get(rid, 0) - amt
+            if self.colony.storage[rid] <= 0:
+                del self.colony.storage[rid]
+
+        success = self.colony.place_building(building_id, self._cursor_x, self._cursor_y)
+        if success:
+            name = BUILDING_DEFS.get(building_id, {}).get("name", building_id)
+            self._message = f"Built {name}!"
+            app = self.app
+            if hasattr(app, "logger"):
+                app.logger.system(f"[colony] Built {name} at ({self._cursor_x},{self._cursor_y}).")
+        else:
+            self._message = "Failed to place building."
+
+        self._pending_building = None
+        self._mode = "view"
+        self._refresh()
+
+    def _remove_building(self):
+        """Удаляет здание под курсором."""
+        cx, cy = self._cursor_x, self._cursor_y
+        building = self.colony.get_building_at(cx, cy)
+        if building:
+            self.colony.remove_building(cx, cy)
+            self._message = f"Removed {building.name}."
+            if hasattr(self.app, "logger"):
+                self.app.logger.system(f"[colony] Removed {building.name}.")
+        else:
+            self._message = "No building here."
+        self._refresh()
+
+    def _show_info(self):
+        """Показывает подробную информацию о выбранной клетке/здании."""
+        cx, cy = self._cursor_x, self._cursor_y
+        building = self.colony.get_building_at(cx, cy)
+        if building:
+            bdef = get_building_def(building.building_id)
+            lines = [
+                f"── {building.name} Lv{building.level} ──",
+                f"  Desc: {bdef.get('desc', '')}",
+                f"  Size: {building.size}x{building.size}",
+                f"  Power: {building.power_consumption}",
+                f"  Workers: {building.workers_required}",
+                f"  Input: {bdef.get('input_slots', [])}",
+                f"  Output: {bdef.get('output_slots', [])}",
+            ]
+            if building.upgradeable:
+                cost = building.upgrade_cost()
+                cost_str = " ".join(f"{k}:{v}" for k, v in cost.items())
+                lines.append(f"  Upgrade cost: {cost_str}")
+            self._message = " | ".join(lines)
+            self._refresh()
+            return
+
+        node = self.colony.get_resource_node_at(cx, cy)
+        if node:
+            self._message = f"Resource: {node.resource_id} ({node.remaining}/{node.total})"
+            self._refresh()
+            return
+
+        tile = self._get_tile_char(cx, cy)
+        tile_name = SURFACE_TILES.get(tile, {}).get("name", "?")
+        self._message = f"Tile: {tile_name} ({cx},{cy})"
+        self._refresh()
+
+    def _transfer_to_ship(self):
+        """Открывает меню передачи ресурсов между колонией и кораблём."""
+        app = self.app
+        if not hasattr(app, "ship") or not hasattr(app, "galaxy"):
+            self._message = "No ship data."
+            self._refresh()
+            return
+
+        # Check if there's a spaceport
+        has_spaceport = any(b.building_id == "spaceport" for b in self.colony.buildings)
+        if not has_spaceport:
+            self._message = "Need a Spaceport to transfer cargo with the ship!"
+            self._refresh()
+            return
+
+        # Quick transfer UI in the info line
+        colony_storage = dict(self.colony.storage)
+        ship_cargo = app.ship.cargo.items
+
+        # Build transfer options
+        lines = ["── Transfer Resources (colony ↔ ship) ──"]
+        lines.append("  Colony storage:")
+        for rid, amt in sorted(colony_storage.items()):
+            lines.append(f"    [{rid}] {amt}")
+        lines.append("  Ship cargo:")
+        for rid, amt in sorted(ship_cargo.items()):
+            lines.append(f"    [{rid}] {amt}")
+        lines.append("  Enter: 'to_ship <res> <amt>' or 'to_colony <res> <amt>'")
+
+        self._message = " | ".join(lines)
+        self._refresh()
+
+        # Use input box for transfer commands
+        from textual.widgets import Input
+        inp = Input(placeholder="to_ship ore 5 | to_colony metal 10 | close", id="transfer-input")
+        self.app.mount(inp)
+        inp.focus()
+
+        def on_input(submitted_event):
+            v = submitted_event.value.strip().lower()
+            if v in ("close", "exit"):
+                inp.remove()
+                self._refresh()
+                return
+            p = v.split()
+            if len(p) >= 3:
+                direction = p[0]
+                rid = p[1]
+                try:
+                    amt = int(p[2])
+                except ValueError:
+                    inp.remove()
+                    self._message = "Invalid amount."
+                    self._refresh()
+                    return
+                if direction == "to_ship":
+                    moved = self.colony.transfer_to_ship(rid, amt, app.ship.cargo)
+                    self._message = f"Moved {moved} {rid} to ship."
+                elif direction == "to_colony":
+                    moved = self.colony.transfer_from_ship(rid, amt, app.ship.cargo)
+                    self._message = f"Moved {moved} {rid} to colony."
+                else:
+                    self._message = "Use to_ship or to_colony."
+            inp.remove()
+            self._refresh()
+
+        inp.on_input_submitted = on_input
+        # Handle Esc to remove input
+        orig_handler = inp.on_key
+
+        def on_input_key(key_event):
+            if key_event.key == "escape":
+                inp.remove()
+                self._refresh()
+                return
+            orig_handler(key_event)
+
+        inp.on_key = on_input_key
+
+    def _manage_colonists(self):
+        """Управление колонистами (найм/увольнение)."""
+        colony = self.colony
+        app = self.app
+
+        # Colonists can be bought at stations or generated by habitats
+        lines = [f"── Colonist Management ──",
+                 f"  Current: {colony.colonists} / Max: {colony.max_colonists}",
+                 f"  Happiness: {colony.happiness}%",
+                 f""]
+        if colony.colonists < colony.max_colonists:
+            # Check for credits
+            cost_per_colonist = 100
+            can_hire = (colony.max_colonists - colony.colonists)
+            total_cost = cost_per_colonist * can_hire
+            lines.append(f"  Hire colonist: {cost_per_colonist}cr each")
+            lines.append(f"  Can hire up to {can_hire} (total: {total_cost}cr)")
+            if app.ship.credits >= cost_per_colonist:
+                hired = 0
+                for _ in range(can_hire):
+                    if app.ship.credits >= cost_per_colonist:
+                        app.ship.credits -= cost_per_colonist
+                        colony.colonists += 1
+                        hired += 1
+                    else:
+                        break
+                if hired > 0:
+                    colony.happiness = min(100, colony.happiness + 2)
+                    self._message = f"Hired {hired} colonist(s)! Total: {colony.colonists}"
+                    app.logger.system(f"[colony] Hired {hired} colonists.")
+                else:
+                    self._message = "Not enough credits."
+            else:
+                self._message = f"Need {cost_per_colonist}cr per colonist."
+        else:
+            self._message = "Colony at max population. Build more Habitats."
+
+        self._refresh()
+
+    def on_key_enter(self, event):
+        """Обрабатывает Enter: размещение здания в режиме build."""
+        if self._mode == "build" and self._pending_building:
+            self._place_building()
+

@@ -43,6 +43,7 @@ RESOURCES = {
     "relic":        {"name": "Alien Relic",   "cat": "special",  "base_price": 500},
     "repair_kit":   {"name": "Repair Kit",    "cat": "consumable", "base_price": 50},
     "shield_booster": {"name": "Shield Booster", "cat": "consumable", "base_price": 80},
+    "colony_starter": {"name": "Colony Starter Kit", "cat": "special", "base_price": 2000},
 }  # все типы ресурсов: категория (сырьё / переработанное / продвинутое / особое / расходник) и базовая цена
 
 RACES = {
@@ -402,6 +403,14 @@ RECIPES = {
         "craft_time": 2,
         "yield": 5,
         "desc": "Ammo: enhanced plasma cell",
+    },
+    # ── Colony ──
+    "colony_starter": {
+        "name": "Colony Starter Kit",
+        "inputs": {"metal": 10, "electronics": 8, "silicon": 5, "shield_mod": 2},
+        "craft_time": 10,
+        "yield": 1,
+        "desc": "Colony starter kit — required to found a colony on a planet.",
     },
 }  # рецепты крафта: входные ресурсы и время изготовления
 
