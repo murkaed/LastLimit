@@ -51,7 +51,7 @@ class TestResources:
                 f"{rid} unknown category: {info['cat']}"
 
     def test_resource_count(self):
-        assert len(RESOURCES) == 10
+        assert len(RESOURCES) == 11
 
 
 class TestRaces:
