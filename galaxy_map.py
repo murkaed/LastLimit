@@ -311,6 +311,7 @@ class GalaxyMapApp(App):
                 self.update_map()
                 self.update_info()
                 event.stop()
+                return
             elif len(self.screen_stack) > 1:
                 return
             self.ctrl.state = GameState.PAUSED
@@ -370,6 +371,9 @@ class GalaxyMapApp(App):
 
     def _on_playing_key(self, event):
         k = event.key.lower()
+        # Block movement when interaction menu is active
+        if self._interaction_active and k not in ("escape", "e"):
+            return
         if k in ("up", "w"):
             self._do_move(0, -1)
         elif k in ("down", "s"):
@@ -450,7 +454,7 @@ class GalaxyMapApp(App):
 
     def _on_paused_key(self, event):
         k = event.key.lower()
-        if k == "c":
+        if k == "c" or k == "escape":
             self.ctrl.state = GameState.PLAYING
             self.update_map()
             self.update_info()
