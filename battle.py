@@ -21,6 +21,7 @@ import random
 from textual.screen import Screen
 from textual.widgets import Static
 
+from locales import t
 from config import RESOURCES, COMPARTMENTS, SHIELD_RESIST, ARMOR_RESIST, COMP_DAMAGE_MOD, AMMO_TYPES, WEAPON_CLASSES, DAMAGE_TYPES
 
 # ---------------------------------------------------------------------------
@@ -872,156 +873,181 @@ class BattleController:
 # ═══════════════════════════════════════════════════════════════════════
 
 class BattleScreen(Screen):
-    """Текстовый экран боя на базе Textual.
+    """Экран боя с CSS-сеткой: статусы, отсеки, лог (12 строк), меню."""
 
-    Отображает состояние боя: здоровье/щиты/энергию обеих сторон,
-    схему отсеков врага, лог событий и меню действий.
-    Управляется с клавиатуры через on_key.
+    CSS = """
+    #battle-grid {
+        layout: grid;
+        grid-size: 2 3;
+        grid-rows: 5 1fr 3;
+        grid-columns: 1fr 1fr;
+        height: 100%;
+    }
+    #ship-status {
+        column-span: 2;
+        border: heavy green;
+        padding: 0 1;
+        background: $surface;
+    }
+    #your-comps {
+        border: solid blue;
+        padding: 0 1;
+        background: $surface;
+    }
+    #enemy-comps {
+        border: solid red;
+        padding: 0 1;
+        background: $surface;
+    }
+    #battle-log {
+        column-span: 2;
+        border: solid yellow;
+        padding: 0 1;
+        background: $surface;
+        color: yellow;
+        height: 100%;
+    }
+    #menu-bar {
+        column-span: 2;
+        border: solid cyan;
+        padding: 0 1;
+        background: $surface;
+    }
     """
 
     def __init__(self, controller: BattleController, quick_battle=False):
-        """Инициализирует экран боя.
-
-        Параметры:
-            controller: экземпляр BattleController, управляющий логикой боя
-            quick_battle: True — режим быстрого боя (не переключает GAME_OVER при смерти)
-        """
         super().__init__()
-        self.ctrl = controller  # контроллер боя
-        self.quick_battle = quick_battle  # режим быстрого боя (без GAME_OVER)
-        self.menu_state = "main"  # текущее состояние меню (main / attack_weapon / attack_target / items / skills)
-        self.menu_index = 0  # индекс в текущем меню
-        self.selected_weapon_idx = controller.selected_weapon_idx  # индекс выбранного оружия
+        self.ctrl = controller
+        self.quick_battle = quick_battle
+        self.menu_state = "main"
+        self.menu_index = 0
+        self.selected_weapon_idx = controller.selected_weapon_idx
 
     def compose(self):
-        """Создаёт виджеты экрана. Содержит один Static-виджет с id 'battle-content'."""
-        yield Static(id="battle-content")
+        from textual.containers import Grid
+        yield Grid(
+            Static(id="ship-status"),
+            Static(id="your-comps"),
+            Static(id="enemy-comps"),
+            Static(id="battle-log"),
+            Static(id="menu-bar"),
+            id="battle-grid",
+        )
 
     def on_mount(self):
-        """Вызывается при монтировании экрана. Обновляет отображение."""
-        self._update_display()
+        self._update_all()
 
-    def _update_display(self):
-        """Перерисовывает весь экран боя: статусы, отсеки врага, лог, меню.
+    def _update_all(self):
+        self._update_ship_status()
+        self._update_compartments()
+        self._update_log()
+        self._update_menu()
 
-        Формирует панель с информацией о кораблях (H/S/E), состоянием отсеков
-        противника, последними записями лога и текущим меню действий.
-        """
+    # ── Ship status (HP/Shield/Energy bars) ──
+
+    def _update_ship_status(self):
         c = self.ctrl
-        lines = []
-        W = 74
+        ps, pe = c.player, c.enemy
+        p_hp = _bar_s(int(ps.hull / max(1, ps.max_hull) * 100), 100, 10)
+        e_hp = _bar_s(int(pe.hull / max(1, c.enemy_max_hull) * 100), 100, 10)
+        p_sh = _bar_s(int(ps.shield_hp / max(1, ps.get_effective_stats().get("shield_cap", 1)) * 100), 100, 10)
+        e_sh = _bar_s(int(pe.shield_hp / max(1, c.enemy_shield_cap) * 100), 100, 10)
+        e_bar = _bar_s(c.player_energy, c.player_max_energy, 10)
+        text = (
+            f"  {ps.name:<15}  ║  {pe.name:<15}\n"
+            f"  H [{p_hp}] {ps.hull}/{ps.max_hull}  ║  H [{e_hp}] {pe.hull}/{c.enemy_max_hull}\n"
+            f"  S [{p_sh}] {ps.shield_hp}/{ps.get_effective_stats().get('shield_cap', 1)}  ║  S [{e_sh}] {pe.shield_hp}/{c.enemy_shield_cap}\n"
+            f"  E [{e_bar}] {c.player_energy}/{c.player_max_energy}"
+        )
+        self.query_one("#ship-status").update(text)
 
-        lines.append(f"  ┌{'─' * (W-4)}┐")
-        lines.append(f"  │{'':^{W-4}}│")
+    # ── Compartments ──
 
-        ps = c.player; pe = c.enemy
-        lines.append(f"  │  {ps.name[:18]:<18}  {'':>7}  {pe.name[:18]:<18}  │")
+    def _update_compartments(self):
+        c = self.ctrl
+        y_lines = [f"  {t('battle.your_comps')}:"]
+        for comp in COMPARTMENTS:
+            pd = c.player.compartments[comp]
+            dest = c._player_comp_destroyed(comp)
+            mods = [m for m in pd["modules"] if m.active and not m.is_broken()]
+            status = f"{len(mods)}m" if mods else (t("battle.inert") if dest else "OK")
+            icon = "☠" if dest else " "
+            y_lines.append(f"  {icon} {comp:<14} {status}")
+        self.query_one("#your-comps").update("\n".join(y_lines))
 
-        p_hull_pct = int(ps.hull / max(1, ps.max_hull) * 100)
-        e_hull_pct = int(pe.hull / max(1, c.enemy_max_hull) * 100)
-        p_sh_pct = int(ps.shield_hp / max(1, ps.get_effective_stats().get("shield_cap",1)) * 100)
-        e_sh_pct = int(pe.shield_hp / max(1, c.enemy_shield_cap) * 100)
-        lines.append(f"  │  H:{_bar_s(p_hull_pct,100,12)} {ps.hull:>3}/{ps.max_hull:<3}  vs  H:{_bar_s(e_hull_pct,100,12)} {pe.hull:>3}/{c.enemy_max_hull:<3}  │")
-        lines.append(f"  │  S:{_bar_s(p_sh_pct,100,12)} {ps.shield_hp:>3}/{ps.get_effective_stats().get('shield_cap',1):<3}  vs  S:{_bar_s(e_sh_pct,100,12)} {pe.shield_hp:>3}/{c.enemy_shield_cap:<3}  │")
-        e_bar = _bar_s(c.player_energy, c.player_max_energy, 12)
-        lines.append(f"  │  E:{e_bar} {c.player_energy:>2}/{c.player_max_energy:<2}{'':>32}  │")
+        e_lines = [f"  {t('battle.enemy_comps')}:"]
+        for i, comp in enumerate(COMPARTMENTS):
+            ed = c.enemy_comps[comp]
+            alive = [m for m in ed["modules"] if m.get("active") and m.get("dur", 0) > 0]
+            n = f"[{i+1}]" if not c.over else "   "
+            status = f"{len(alive)}m" if alive else (t("battle.inert") if not ed["modules"] else "DESTROYED")
+            e_lines.append(f"  {n} {comp:<14} {status}")
+        self.query_one("#enemy-comps").update("\n".join(e_lines))
 
-        # ── Схема отсеков врага ──
-        lines.append(f"  │  {'─' * (W-6)}  │")
-        lines.append(f"  │  {'ENEMY COMPARTMENTS':^{W-6}}  │")
-        lines.append(f"  │  {'─' * (W-6)}  │")
-        for i, comp_name in enumerate(COMPARTMENTS):
-            cd = c.enemy_comps[comp_name]
-            status = _compartment_status_str(comp_name, cd, 10)
-            marker = f"[{i+1}]" if not c.over else "   "
-            lines.append(f"  │  {marker} {status:<30}{'':>35}  │")
+    # ── Log (12 lines) ──
 
-        # ── Схема отсеков игрока ──
-        lines.append(f"  │  {'─' * (W-6)}  │")
-        lines.append(f"  │  {'YOUR COMPARTMENTS':^{W-6}}  │")
-        lines.append(f"  │  {'─' * (W-6)}  │")
-        for comp_name in COMPARTMENTS:
-            pd = c.player.compartments[comp_name]
-            status = _player_comp_status_str(comp_name, pd, 10)
-            destroyed = c._player_comp_destroyed(comp_name)
-            icon = " ☠" if destroyed else "  "
-            lines.append(f"  │  {icon}{status:<30}{'':>35}  │")
-
-        # ── Лог боя (последние 5 записей) ──
-        lines.append(f"  │  {'─' * (W-6)}  │")
-        for entry in c.log[-5:]:
-            lines.append(f"  │  {entry:<{W-6}}  │")
-
-        # ── Меню действий ──
-        lines.append(f"  │  {'─' * (W-6)}  │")
-        if c.over:
-            msg = "★ VICTORY! ★" if c.victory else "☠ DEFEATED ☠"
-            lines.append(f"  │  {msg:^{W-6}}  │")
-            lines.append(f"  │  {'':^{W-4}}  │")
-            lines.append(f"  │  {'Press any key...':^{W-6}}  │")
+    def _update_log(self):
+        c = self.ctrl
+        entries = c.log[-12:]
+        if entries:
+            lines = [f"  {entry}" for entry in entries]
         else:
-            menu = self._render_menu()
-            for ml in menu:
-                lines.append(f"  │  {ml:<{W-6}}  │")
+            lines = ["  --"]
+        self.query_one("#battle-log").update("\n".join(lines))
 
-        lines.append(f"  │{'':^{W-4}}│")
-        lines.append(f"  └{'─' * (W-4)}┘")
-        self.query_one("#battle-content").update("\n".join(lines))
+    # ── Menu ──
 
-    def _render_menu(self):
-        """Формирует список строк текущего меню в зависимости от состояния.
-
-        Возвращает:
-            список строк для отображения в нижней части экрана боя
-        """
-        ms = self.menu_state; c = self.ctrl
+    def _update_menu(self):
+        c = self.ctrl
+        if c.over:
+            msg = t("battle.victory") if c.victory else t("battle.defeat")
+            self.query_one("#menu-bar").update(f"  {msg}  —  {t('battle.press_any_key')}")
+            return
+        ms = self.menu_state
         if ms == "main":
-            return [
-                "\\[1] Attack  \\[2] Defend  \\[3] Items  \\[4] Skills  \\[5] Escape  \\[6] Reload",
-                f"    Energy: {c.player_energy}/{c.player_max_energy}",
-            ]
+            text = f"  [1]{t('battle.attack')}  [2]{t('battle.defend')}  [3]{t('battle.items')}  [4]{t('battle.skills')}  [5]{t('battle.escape')}  [6]{t('battle.reload')}"
         elif ms == "attack_weapon":
-            r = []
+            lines = [f"  {t('battle.select_weapon')}:"]
             for i, w in enumerate(c._get_player_weapons()):
-                r.append(f"  \\[{i+1}] {w.name}  ⚔{w.stats.get('damage',0)} 🎯{w.stats.get('accuracy',0)}% ⚡{w.energy_consumption}")
-            r.append("  \\[0] Back"); return r
+                lines.append(f"  [{i+1}] {w.name}  ⚔{w.stats.get('damage',0)} 🎯{w.stats.get('accuracy',0)}% ⚡{w.energy_consumption}")
+            lines.append(f"  [0] {t('battle.back')}")
+            text = "\n".join(lines)
         elif ms == "attack_target":
-            r = []
+            lines = [f"  {t('battle.select_target')}:"]
             for i, cn in enumerate(COMPARTMENTS):
                 alive = [m for m in c.enemy_comps[cn]["modules"] if m.get("active") and m.get("dur", 0) > 0]
-                r.append(f"    \\[{i+1}] {cn:<14} ({len(alive)} mod)" if alive else f"    \\[{i+1}] {cn:<14} (inert)")
-            r.append("    \\[0] Random")
-            return r
+                status = f"({len(alive)} {t('battle.mod')})" if alive else f"({t('battle.inert')})"
+                lines.append(f"  [{i+1}] {cn:<14} {status}")
+            lines.append(f"  [0] {t('battle.random')}")
+            text = "\n".join(lines)
         elif ms == "items":
-            found = False; r = []
-            item_list = list(BATTLE_CONSUMABLES.items())
-            for i, (rid, info) in enumerate(item_list):
+            lines = [f"  {t('battle.items')}:"]
+            found = False
+            for i, (rid, info) in enumerate(BATTLE_CONSUMABLES.items()):
                 qty = c.player.cargo.has(rid)
                 if qty > 0:
                     found = True
-                    r.append(f"  [{i+1}] {info['name']:<16} x{qty}")
-            if not found: r.append("  (no items)")
-            r.append("  [0] Back"); return r
+                    lines.append(f"  [{i+1}] {info['name']:<16} x{qty}")
+            if not found:
+                lines.append(f"  {t('battle.no_items')}")
+            lines.append(f"  [0] {t('battle.back')}")
+            text = "\n".join(lines)
         elif ms == "skills":
-            r = []
-            skill_list = list(BATTLE_SKILLS.items())
-            for i, (sid, sk) in enumerate(skill_list):
+            lines = [f"  {t('battle.skills')}:"]
+            for i, (sid, sk) in enumerate(BATTLE_SKILLS.items()):
                 ok = "✓" if c.player_energy >= sk["energy_cost"] else "✗"
                 can = c._player_can_skill(sid)
-                disabled = "" if can else " 🔒(no sensor)"
-                r.append(f"  [{i+1}] {sk['name']:<20} {sk['energy_cost']}e {ok}{disabled}")
-            r.append("  [0] Back"); return r
-        return []
+                disabled = "" if can else " 🔒"
+                lines.append(f"  [{i+1}] {sk['name']:<20} {sk['energy_cost']}e {ok}{disabled}")
+            lines.append(f"  [0] {t('battle.back')}")
+            text = "\n".join(lines)
+        else:
+            text = ""
+        self.query_one("#menu-bar").update(text)
+
+    # ── Key handling (unchanged logic) ──
 
     def on_key(self, event):
-        """Обрабатывает нажатия клавиш в зависимости от текущего состояния меню.
-
-        Если бой окончен — закрывает экран и применяет результат.
-        Иначе маршрутизирует нажатие в соответствующую ветку меню.
-
-        Параметры:
-            event: событие нажатия клавиши
-        """
         c = self.ctrl
         if c.over:
             self._apply_outcome()
@@ -1033,26 +1059,26 @@ class BattleScreen(Screen):
         if self.menu_state == "main":
             if k == "1":
                 if c._get_player_weapons(): self.menu_state = "attack_weapon"
-                else: c.add_log("No weapons!")
+                else: c.add_log(t("battle.no_weapons"))
             elif k == "2": c.do_defend()
             elif k == "3": self.menu_state = "items"
             elif k == "4": self.menu_state = "skills"
             elif k == "5": c.do_escape()
             elif k == "6": c.do_reload()
-            self._update_display()
+            self._update_all()
         elif self.menu_state == "attack_weapon":
             wk = c._get_player_weapons()
             if k == "0": self.menu_state = "main"
             elif k in "123456789":
                 idx = int(k) - 1
                 if idx < len(wk): self.selected_weapon_idx = idx; self.menu_state = "attack_target"
-            self._update_display()
+            self._update_all()
         elif self.menu_state == "attack_target":
             if k == "0": c.do_attack(self.selected_weapon_idx, None); self.menu_state = "main"
             elif k.isdigit() and k != "0":
                 idx = int(k) - 1
                 if idx < len(COMPARTMENTS): c.do_attack(self.selected_weapon_idx, COMPARTMENTS[idx]); self.menu_state = "main"
-            self._update_display()
+            self._update_all()
         elif self.menu_state == "items":
             item_list = list(BATTLE_CONSUMABLES.keys())
             if k == "0": self.menu_state = "main"
@@ -1063,7 +1089,7 @@ class BattleScreen(Screen):
                     if c.player.cargo.has(rid):
                         c.do_use_item(rid)
                         self.menu_state = "main"
-            self._update_display()
+            self._update_all()
         elif self.menu_state == "skills":
             skill_list = list(BATTLE_SKILLS.keys())
             if k == "0": self.menu_state = "main"
@@ -1072,18 +1098,11 @@ class BattleScreen(Screen):
                 if idx < len(skill_list):
                     c.do_skill(skill_list[idx])
                     self.menu_state = "main"
-            self._update_display()
+            self._update_all()
 
     def _apply_outcome(self):
-        """Применяет результат боя к состоянию игры.
-
-        В режиме быстрого боя (quick_battle=True) не переключает GameState.GAME_OVER
-        и не модифицирует состояние приложения — экран просто закрывается.
-        В обычном режиме при поражении устанавливает GameState.GAME_OVER
-        и записывает причину смерти. Обновляет карту и информационную панель.
-        """
         if self.quick_battle:
-            return  # в быстром бою не трогаем состояние приложения
+            return
         c = self.ctrl; app = self.app
         if not c.victory and c.player.hull <= 0:
             if hasattr(app, "GameState"):
