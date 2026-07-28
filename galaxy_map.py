@@ -604,11 +604,8 @@ class GalaxyMapApp(App):
 
     def _start_quick_battle(self):
         from models import create_random_ship, create_random_enemy
-        self.ctrl.state = GameState.PLAYING
-        self.ctrl.race_selected = True
         player = create_random_ship(is_player=True)
         enemy = create_random_enemy()
-        self.ctrl.ship = player
         self.ctrl.logger.system("Quick Battle mode.")
         ctrl = BattleController(player, enemy, self)
         self.push_screen(BattleScreen(ctrl, quick_battle=True))
