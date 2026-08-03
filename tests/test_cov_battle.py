@@ -2,6 +2,8 @@
 
 import random
 
+import pytest
+
 from battle import BattleController, BattleScreen, BATTLE_SKILLS, _bar_s
 from models import PirateShip, create_random_ship
 
@@ -260,6 +262,39 @@ def test_bar_s():
     assert "█" in _bar_s(5, 10, 10)
     assert "░" in _bar_s(5, 10, 10)
     assert _bar_s(0, 0, 10)  # деление на ноль не падает
+    # Клампинг: current > maximum не должен удлинять полосу
+    assert len(_bar_s(150, 100, 10)) == 10
+    assert _bar_s(150, 100, 10) == "█" * 10
+    assert len(_bar_s(-5, 10, 8)) == 8  # отрицательное значение
+    # Полосы разной ширины
+    assert len(_bar_s(50, 100, 20)) == 20
+    assert len(_bar_s(50, 100, 6)) == 6
+
+
+@pytest.mark.asyncio
+async def test_battle_screen_bars_scale_with_window():
+    """Полосы H/S/E масштабируются под ширину окна и не переполняют его."""
+    from galaxy_map import GalaxyMapApp
+    app = GalaxyMapApp()
+    async with app.run_test(size=(80, 44)) as pilot:
+        for k in ("1", "1", "1", "1"):
+            await pilot.press(k)
+            await pilot.pause()
+        p = create_random_ship(is_player=True)
+        e = PirateShip(1, 1)
+        bc = BattleController(p, e, app=app)
+        screen = BattleScreen(bc)
+        app.push_screen(screen)
+        await pilot.pause()
+        await pilot.pause()
+        txt80 = str(screen.query_one("#ship-status").render())
+        # ни одна строка статуса не длиннее ширины окна
+        assert all(len(line) <= 80 for line in txt80.splitlines())
+        # полосы шире фиксированных 10 символов
+        h_line = next(l for l in txt80.splitlines() if l.strip().startswith("H ["))
+        assert len(h_line) > 30
+        screen.dismiss()
+        await pilot.pause()
 
 
 def test_compartment_status_strings():

@@ -4,6 +4,7 @@ Covers: console commands, NPC world AI (step_npc), wormholes, colonies,
 race mechanics (voidborn/machine_cult), save/load round-trip, t() safety.
 """
 
+import random
 import pytest
 from types import SimpleNamespace
 
@@ -114,37 +115,40 @@ def test_wormhole_collapses_when_alone():
 # Colonies
 # =============================================================================
 
-def _colonizable_planet(ctrl):
+def _colonizable_planets(ctrl):
     from colony import PLANET_TYPES
-    for p, t in ctrl.galaxy.planet_types.items():
-        if not PLANET_TYPES.get(t, {}).get("orbit_only"):
-            return p
-    return None
+    return [p for p, t in ctrl.galaxy.planet_types.items()
+            if not PLANET_TYPES.get(t, {}).get("orbit_only")]
 
 
 def test_found_colony_requires_starter():
+    random.seed(42)  # детерминированные типы планет
     ctrl = GameController()
-    px, py = _colonizable_planet(ctrl)
-    if px is None:
+    planets = _colonizable_planets(ctrl)
+    if not planets:
         return  # в этой генерации нет колонизируемых планет
+    px, py = planets[0]
     ctrl.player_x, ctrl.player_y = px, py
     ctrl.found_colony()
     assert (px, py) not in ctrl.galaxy.colonies
 
 
 def test_found_colony_creates_and_open_returns_screen():
+    random.seed(42)
     ctrl = GameController()
-    px, py = _colonizable_planet(ctrl)
-    if px is None:
+    for px, py in _colonizable_planets(ctrl):
+        ctrl.ship.cargo.add("colony_starter", 1)
+        ctrl.player_x, ctrl.player_y = px, py
+        ctrl.found_colony()
+        if (px, py) not in ctrl.galaxy.colonies:
+            ctrl.ship.cargo.remove("colony_starter", 1)
+            continue  # попробовать следующую планету
+        assert ctrl.ship.cargo.has("colony_starter") == 0  # комплект израсходован
+        result = ctrl.open_colony()
+        assert result is not None
+        assert result[0] == "PlanetSurfaceScreen"
         return
-    ctrl.player_x, ctrl.player_y = px, py
-    ctrl.ship.cargo.add("colony_starter", 1)
-    ctrl.found_colony()
-    assert (px, py) in ctrl.galaxy.colonies
-    assert ctrl.ship.cargo.has("colony_starter") == 0  # комплект израсходован
-    result = ctrl.open_colony()
-    assert result is not None
-    assert result[0] == "PlanetSurfaceScreen"
+    pytest.fail("ни одна планета не колонизировалась")
 
 
 # =============================================================================

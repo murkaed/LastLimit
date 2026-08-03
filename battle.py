@@ -76,7 +76,7 @@ def _bar_s(current, maximum, width=10):
         строку вида "█████░░░░░"
     """
     if maximum <= 0: return "░" * width
-    filled = int(current / maximum * width)
+    filled = max(0, min(width, int(current / maximum * width)))
     return "█" * filled + "░" * (width - filled)
 
 
@@ -961,15 +961,25 @@ class BattleScreen(Screen):
     def _update_ship_status(self):
         c = self.ctrl
         ps, pe = c.player, c.enemy
-        p_hp = _bar_s(int(ps.hull / max(1, ps.max_hull) * 100), 100, 10)
-        e_hp = _bar_s(int(pe.hull / max(1, c.enemy_max_hull) * 100), 100, 10)
-        p_sh = _bar_s(int(ps.shield_hp / max(1, ps.get_effective_stats().get("shield_cap", 1)) * 100), 100, 10)
-        e_sh = _bar_s(int(pe.shield_hp / max(1, c.enemy_shield_cap) * 100), 100, 10)
-        e_bar = _bar_s(c.player_energy, c.player_max_energy, 10)
+        # Полосы масштабируются под ширину окна, а не фиксированные 10:
+        # каждая половина строки ≈ (ширина - служебный текст) / 2.
+        w = max(46, self.size.width)
+        bw = max(6, (w - 34) // 2)
+        p_hp = _bar_s(int(ps.hull / max(1, ps.max_hull) * 100), 100, bw)
+        e_hp = _bar_s(int(pe.hull / max(1, c.enemy_max_hull) * 100), 100, bw)
+        # Щит: если модуля щита нет (cap=0), полоса пустая — иначе она
+        # переполняла бы строку (shield_hp может превышать cap).
+        sh_cap = ps.get_effective_stats().get("shield_cap", 0)
+        if sh_cap > 0:
+            p_sh = _bar_s(ps.shield_hp, sh_cap, bw)
+        else:
+            p_sh = "░" * bw
+        e_sh = _bar_s(pe.shield_hp, max(1, c.enemy_shield_cap), bw)
+        e_bar = _bar_s(c.player_energy, c.player_max_energy, bw)
         text = (
             f"  {ps.name:<15}  ║  {pe.name:<15}\n"
             f"  H [{p_hp}] {ps.hull}/{ps.max_hull}  ║  H [{e_hp}] {pe.hull}/{c.enemy_max_hull}\n"
-            f"  S [{p_sh}] {ps.shield_hp}/{ps.get_effective_stats().get('shield_cap', 1)}  ║  S [{e_sh}] {pe.shield_hp}/{c.enemy_shield_cap}\n"
+            f"  S [{p_sh}] {ps.shield_hp}/{sh_cap}  ║  S [{e_sh}] {pe.shield_hp}/{c.enemy_shield_cap}\n"
             f"  E [{e_bar}] {c.player_energy}/{c.player_max_energy}"
         )
         self.query_one("#ship-status").update(text)
@@ -978,6 +988,8 @@ class BattleScreen(Screen):
 
     def _update_compartments(self):
         c = self.ctrl
+        # Полосы модулей тоже слегка масштабируются под ширину окна
+        mbw = max(3, min(8, 5 + (self.size.width - 80) // 20))
         y_lines = [f"  {t('battle.your_comps')}:"]
         for comp in COMPARTMENTS:
             pd = c.player.compartments[comp]
@@ -987,7 +999,7 @@ class BattleScreen(Screen):
             if mods:
                 parts = []
                 for m in mods:
-                    dur_bar = _bar_s(m.durability, m.max_durability, 5)
+                    dur_bar = _bar_s(m.durability, m.max_durability, mbw)
                     parts.append(f"{m.name[:8]}[{dur_bar}]")
                 y_lines.append(f"  {icon}{comp:<12} {' '.join(parts)}")
             else:
@@ -1003,7 +1015,7 @@ class BattleScreen(Screen):
             if alive:
                 parts = []
                 for m in alive[:2]:
-                    dur_bar = _bar_s(m.get("dur", 0), m.get("max_dur", 1), 5)
+                    dur_bar = _bar_s(m.get("dur", 0), m.get("max_dur", 1), mbw)
                     parts.append(f"{m['name'][:8]}[{dur_bar}]")
                 e_lines.append(f"  {n}{comp:<12} {' '.join(parts)}")
             else:
