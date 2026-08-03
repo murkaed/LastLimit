@@ -600,8 +600,17 @@ class BattleController:
         info = BATTLE_CONSUMABLES.get(item_rid)
         if not info: self.add_log(f"Unknown '{item_rid}'."); return
         if not self.player.cargo.has(item_rid): self.add_log(f"No {info['name']}!"); return
-        self.player.cargo.remove(item_rid, 1)
         eff = info["effect"]
+        # Не тратим предмет впустую: проверяем, что эффект возможен
+        if "hull" in eff and self.player.hull >= self.player.max_hull:
+            self.add_log(f"{info['name']} — hull already max."); return
+        if "shield" in eff:
+            cap = self.player.get_effective_stats().get("shield_cap", 0)
+            if self.player.shield_hp >= cap:
+                self.add_log(f"{info['name']} — shields already full."); return
+        if "energy" in eff and self.player_energy >= self.player_max_energy:
+            self.add_log(f"{info['name']} — energy already full."); return
+        self.player.cargo.remove(item_rid, 1)
         if "hull" in eff:
             self.player.hull = min(self.player.max_hull, self.player.hull + eff["hull"])
             self.add_log(f"{info['name']}! Hull +{eff['hull']}.")

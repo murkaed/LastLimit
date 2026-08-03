@@ -19,7 +19,7 @@ ui.py — Все экраны интерфейса игры LastLimit.
 
 from textual.screen import Screen
 from textual.widgets import Static, Input, DataTable, Footer
-from config import RESOURCES, COMPARTMENTS, SHIP_MODULES, SHIP_HULLS, UPGRADES, RECIPES, CREW_SPECIALTIES, WEAPON_CLASSES, AMMO_TYPES
+from config import RESOURCES, COMPARTMENTS, SHIP_MODULES, SHIP_HULLS, UPGRADES, RECIPES, CREW_SPECIALTIES, WEAPON_CLASSES, AMMO_TYPES, TILE_PLANET, TILE_ASTEROIDS, TILE_STATION
 
 # ═══════════════════════════════════════════════════════════════════════
 # BaseScreen — единый базовый класс для всех экранов игры
@@ -165,11 +165,15 @@ class CommandScreen(Screen):
         yield Input(placeholder="Enter command (help for list)...", id="cmd-input")
 
     def on_input_submitted(self, event):
-        """Передаёт введённую команду в app.process_command() и закрывает экран."""
+        """Передаёт введённую команду в app.process_command() и закрывает экран.
+
+        Сначала dismiss, затем команда: process_command может открыть BattleScreen,
+        и dismiss после push снял бы с верхушки стека только что открытый бой.
+        """
         app = self.app
+        self.dismiss()
         if hasattr(app, "process_command"):
             app.process_command(event.value)
-        self.dismiss()
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1245,12 +1249,16 @@ class TacticalScreen(Screen):
                     self._start_battle(tgt)
 
     def _start_battle(self, target_npc):
-        """Запускает экран боя (BattleScreen) для указанной цели."""
+        """Запускает экран боя (BattleScreen) для указанной цели.
+
+        Сначала dismiss текущего экрана, затем push боя: dismiss снимает
+        верхушку стека, поэтому обратный порядок удалил бы BattleScreen.
+        """
         app = self.app
         from battle import BattleController, BattleScreen
         bc = BattleController(app.ship, target_npc, app, selected_weapon_idx=self._sel_weapon)
-        app.push_screen(BattleScreen(bc))
         self.dismiss()
+        app.push_screen(BattleScreen(bc))
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1338,8 +1346,10 @@ class ModuleShopScreen(Screen):
                     app.logger.system(f"Can't install {mid}.")
                 self.dismiss()
         else:
-            app.process_command(v)
+            # dismiss до process_command: команда может открыть BattleScreen,
+            # который не должен быть снят со стека последующим dismiss
             self.dismiss()
+            app.process_command(v)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1438,19 +1448,18 @@ class MissionScreen(Screen):
             except ValueError:
                 return
             if 0 <= idx < len(st.missions):
-                m = st.missions.pop(idx)
-                if len(s.missions) < 5:
-                    s.missions.append(m)
-                    name = RESOURCES.get(m.resource, {}).get("name", m.resource)
-                    app.logger.system(
-                        f"Mission: {m.amount}x {name} → {m.target_station} +{m.reward}cr"
-                    )
-                else:
-                    app.logger.system("Mission log full (max 5).")
+                # Проверка лимита ДО удаления миссии со станции: при полном
+                # журнале миссия не должна пропадать (см. add_mission).
+                m = st.missions[idx]
+                msg, ok = s.add_mission(m)
+                if ok:
+                    st.missions.remove(m)
+                app.logger.system(msg)
                 self.dismiss()
         else:
-            app.process_command(v)
+            # dismiss до process_command: команда может открыть BattleScreen
             self.dismiss()
+            app.process_command(v)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1644,7 +1653,9 @@ class CraftingScreen(Screen):
             if not matched: app.logger.system(f"Recipe '{target}' not available here.")
             else: msg, ok = s.craft(matched, amount); app.logger.system(msg)
             self.dismiss(); return
-        app.process_command(v); self.dismiss()
+        # dismiss до process_command: команда может открыть BattleScreen
+        self.dismiss()
+        app.process_command(v)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1960,7 +1971,8 @@ class ActionMenu(Screen):
         if st:
             interact.append(("d", t("action.trade"), "trade"))
             if st.missions:
-                interact.append(("m", t("action.missions"), "station_missions"))
+                # "j" (journal), не "m" — "m" уже занят разделом «Корабль» (missions)
+                interact.append(("j", t("action.missions"), "station_missions"))
             if st.modules_for_sale:
                 interact.append(("p", t("action.trade")+" mod", "modules"))
             if st.stype == "shipyard":
@@ -1972,14 +1984,15 @@ class ActionMenu(Screen):
             interact.append(("f", t("action.refuel"), "refuel"))
             interact.append(("x", t("action.repair"), "repair"))
         tile = app.galaxy.tiles[app.player_y][app.player_x] if hasattr(app, "galaxy") else ""
-        if tile in ("o", "÷", "◈"):
+        if tile in (TILE_PLANET, TILE_ASTEROIDS, TILE_STATION):
             interact.append(("l", t("action.land"), "land"))
         # NPC interactions
         npc = self._nearby_npc()
         if npc:
             from models import TraderShip
             if isinstance(npc, TraderShip):
-                interact.append(("t", t("action.talk"), "trader_talk"))
+                # "w" (talk), не "t" — "t" уже занят разделом «Корабль» (tactical)
+                interact.append(("w", t("action.talk"), "trader_talk"))
             else:
                 interact.append(("a", t("action.attack"), "attack_npc"))
         if interact:
@@ -2015,15 +2028,22 @@ class ActionMenu(Screen):
             "shipyard": lambda: app.push_screen(ShipyardScreen(st)),
             "craft": lambda: app.push_screen(CraftingScreen(st)),
             "hire": lambda: app.push_screen(HireScreen(st)),
-            "refuel": lambda: app._act_refuel(),
-            "repair": lambda: app._act_repair(),
-            "land": lambda: app._try_landing(),
+            "refuel": lambda: app.ctrl._act_refuel(),
+            "repair": lambda: app.ctrl._act_repair(),
+            "land": lambda: self._do_land(app),
             "trader_talk": lambda: self._trader_talk(app),
             "attack_npc": lambda: self._attack_npc(app),
             "settings": lambda: app.push_screen(SettingsScreen()),
         }
         fn = m.get(action_id)
         if fn: fn()
+
+    def _do_land(self, app):
+        """Высадка из меню действий: через try_landing контроллера."""
+        result = app.ctrl.try_landing()
+        if result:
+            screen_type, site_type, site_name = result
+            app.push_screen(LandingPrepScreen(site_type=site_type, site_name=site_name))
 
     def _trader_talk(self, app):
         """Открывает окно взаимодействия с трейдером — торговля и миссии."""
@@ -2205,7 +2225,7 @@ class SettingsScreen(Screen):
         if v in ("close","exit","quit"):
             self._save_close(); return
         p = v.split()
-        if p[0]=="change" and len(p)>=3 and p[1] in self._settings["keys"]:
+        if p and p[0]=="change" and len(p)>=3 and p[1] in self._settings["keys"]:
             self._settings["keys"][p[1]] = p[2]
         self._refresh_ui()
 
@@ -2505,6 +2525,12 @@ class PlanetSurfaceScreen(Screen):
         elif event.key == "c":
             self._manage_colonists()
             return
+        elif event.key == "enter":
+            # Размещение здания в режиме build (Textual не имеет события
+            # KeyEnter — раньше хендлер on_key_enter никогда не вызывался)
+            if self._mode == "build" and self._pending_building:
+                self._place_building()
+            return
 
         if dx != 0 or dy != 0:
             nx = max(0, min(SURFACE_SIZE - 1, self._cursor_x + dx))
@@ -2737,9 +2763,4 @@ class PlanetSurfaceScreen(Screen):
             self._message = "Colony at max population. Build more Habitats."
 
         self._refresh()
-
-    def on_key_enter(self, event):
-        """Обрабатывает Enter: размещение здания в режиме build."""
-        if self._mode == "build" and self._pending_building:
-            self._place_building()
 

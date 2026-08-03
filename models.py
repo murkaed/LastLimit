@@ -861,21 +861,25 @@ class PlayerShip:
         have = self.cargo.has(item_id)
         if have < amount:
             return f"Need {amount}, have {have}.", False
+        # Считаем фактический эффект ДО списания предмета: если лечиться/бустить
+        # некуда, предмет не должен сгорать впустую.
+        if "hull" in bonus:
+            applied = min(self.max_hull, self.hull + bonus["hull"] * amount) - self.hull
+        elif "fuel" in bonus:
+            applied = bonus["fuel"] * amount
+        else:  # shield
+            cap = self.get_effective_stats().get("shield_cap", 0)
+            applied = min(cap, self.shield_hp + bonus["shield"] * amount) - self.shield_hp
+        if applied <= 0:
+            return "No effect — already at maximum.", False
         if not self.cargo.remove(item_id, amount):
             return "Cargo error.", False
-        applied = 0
         if "hull" in bonus:
-            prev = self.hull
             self.hull = min(self.max_hull, self.hull + bonus["hull"] * amount)
-            applied += self.hull - prev
-        if "fuel" in bonus:
+        elif "fuel" in bonus:
             self.fuel += bonus["fuel"] * amount
-            applied += bonus["fuel"] * amount
-        if "shield" in bonus:
-            cap = self.get_effective_stats().get("shield_cap", 0)  # макс. щит
-            prev = self.shield_hp
+        else:
             self.shield_hp = min(cap, self.shield_hp + bonus["shield"] * amount)
-            applied += self.shield_hp - prev
         return (bonus["msg"].format(applied), True)
 
     def install_module_from_cargo(self, mod_id):
@@ -2158,7 +2162,11 @@ class Galaxy:
             tg = t.current_target(self.stations)
             if not tg:
                 continue
-            if t.x == tg.x and t.y == tg.y:
+            # Прибытие = нахождение РЯДОМ со станцией (Chebyshev ≤ 1):
+            # торговец не может занять клетку станции (_occupied запрещает),
+            # поэтому точное совпадение координат недостижимо — иначе
+            # маршрут никогда не продвигался бы и торговцы застревали.
+            if max(abs(t.x - tg.x), abs(t.y - tg.y)) <= 1:
                 t.wait_ticks = self._rng.randint(2, 5) if t.wait_ticks <= 0 else t.wait_ticks - 1
                 if t.wait_ticks <= 0:
                     t.route_index += 1

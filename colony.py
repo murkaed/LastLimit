@@ -642,11 +642,13 @@ class ColonyManager:
         assigned = sum(1 for b in self.buildings if b.active and b.workers_required > 0)
         available_workers = self.colonists
         for b in self.buildings:
-            if not b.active:
-                continue
+            # Активность пересчитывается КАЖДЫЙ тик: здание, отключённое за
+            # нехватку рабочих/ресурсов, снова включается, когда условия
+            # восстановились (раньше b.active=False оставалось навсегда).
             if b.workers_required > 0 and available_workers < b.workers_required:
-                b.active = False
-                events.append(f"{b.name} stopped — not enough workers.")
+                if b.active:
+                    b.active = False
+                    events.append(f"{b.name} stopped — not enough workers.")
                 continue
             if b.workers_required > 0:
                 available_workers -= b.workers_required
@@ -711,14 +713,17 @@ class ColonyManager:
                 return
             self.storage[rid] = available - needed
 
-        # Производим ресурсы на выходе
-        for rid, amt in b.get_output_slots():
-            produced = int(amt * efficiency)
-            if produced <= 0:
-                continue
-            self._add_to_storage(rid, produced)
-            if produced > 0 and efficiency >= 1.0:
-                events.append(f"{b.name} produced {produced} {rid}.")
+        # Производим ресурсы на выходе. Шахта и очиститель воды имеют
+        # собственную логику ниже (жила/вода) и НЕ должны давать ресурсы
+        # «из воздуха» через общий путь — иначе производство задваивается.
+        if b.building_id not in ("mine", "water_purifier"):
+            for rid, amt in b.get_output_slots():
+                produced = int(amt * efficiency)
+                if produced <= 0:
+                    continue
+                self._add_to_storage(rid, produced)
+                if produced > 0 and efficiency >= 1.0:
+                    events.append(f"{b.name} produced {produced} {rid}.")
 
         # Специальная обработка: шахта добывает из жилы
         if b.building_id == "mine":

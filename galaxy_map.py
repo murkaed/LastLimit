@@ -49,6 +49,12 @@ SCREEN_MAP = {
 class GalaxyMapApp(App):
     """Textual App shell — delegates game logic to GameController."""
 
+    # Игра управляется клавиатурой через экранные on_key-хендлеры. Авто-фокус
+    # Input'а (Textual-дефолт "*") перехватывал Enter/цифры/буквы на экранах
+    # с полем ввода и делал их on_key мёртвым. Input остаётся доступен
+    # по Tab/клику для текстовых команд.
+    AUTO_FOCUS = None
+
     CSS = """
     #map { height: 1fr; content-align: center middle; }
     #info-panel {
@@ -140,6 +146,22 @@ class GalaxyMapApp(App):
     @_interaction_active.setter
     def _interaction_active(self, v):
         self.ctrl._interaction_active = v
+
+    @property
+    def _interaction_submenu_active(self):
+        return self.ctrl._interaction_submenu_active
+
+    @_interaction_submenu_active.setter
+    def _interaction_submenu_active(self, v):
+        self.ctrl._interaction_submenu_active = v
+
+    @property
+    def _saved_interaction_actions(self):
+        return self.ctrl._saved_interaction_actions
+
+    @_saved_interaction_actions.setter
+    def _saved_interaction_actions(self, v):
+        self.ctrl._saved_interaction_actions = v
 
     @property
     def cursor_x(self):
@@ -269,9 +291,9 @@ class GalaxyMapApp(App):
     # Screen management
     # -------------------------------------------------------------------
 
-    def push_screen(self, screen):
+    def push_screen(self, screen, callback=None, wait_for_dismiss=False, *, mode=None):
         self.ctrl.world_frozen = True
-        super().push_screen(screen)
+        super().push_screen(screen, callback=callback, wait_for_dismiss=wait_for_dismiss, mode=mode)
 
     def on_screen_resume(self, event=None):
         if len(self.screen_stack) <= 1:
@@ -291,9 +313,9 @@ class GalaxyMapApp(App):
     # -------------------------------------------------------------------
 
     def on_key(self, event):
-        if isinstance(self.screen, BattleScreen):
-            return
-        if isinstance(self.screen, ExpeditionScreen):
+        # Any pushed screen (ship menu, battle, expedition, trade, etc.)
+        # blocks game key handling — the top screen's own on_key owns the event.
+        if len(self.screen_stack) > 1:
             return
 
         prev_state = self.ctrl.state  # capture before handlers modify it
@@ -308,6 +330,15 @@ class GalaxyMapApp(App):
             self._on_paused_key(event)
         elif self.ctrl.state == GameState.GAME_OVER:
             self._on_game_over_key(event)
+        elif self.ctrl.state in (GameState.HELP, GameState.NEWS):
+            # Выход из HELP/NEWS: Esc, H или N возвращают в предыдущее состояние.
+            # Ранний return предотвращает срабатывание глобальных клавиш ниже
+            # (например, повторный вход в HELP по "h" или пауза по Esc).
+            if event.key in ("escape", "h", "n"):
+                self.ctrl.state = self.ctrl._prev_state or GameState.PLAYING
+                self.update_map()
+                self.update_info()
+                return
         elif self._interaction_active:
             self._on_interaction_key(event)
 
@@ -316,6 +347,8 @@ class GalaxyMapApp(App):
                 GameState.PLAYING, GameState.INSPECTING):
             if self._interaction_active:
                 self._interaction_active = False
+                self._interaction_submenu_active = False
+                self._saved_interaction_actions = None
                 self.update_map()
                 self.update_info()
                 event.stop()
@@ -345,8 +378,6 @@ class GalaxyMapApp(App):
         elif event.key == "q":
             if self.ctrl.state in (GameState.PLAYING, GameState.INSPECTING):
                 self.exit()
-        elif event.key == "f5":
-            self.push_screen(CrewScreen())
         elif event.key == "f6":
             self._do_save()
         elif event.key == "f7":
@@ -436,8 +467,12 @@ class GalaxyMapApp(App):
     def _on_playing_key(self, event):
         k = event.key.lower()
         if self._interaction_active:
-            if k == "0" or k == "escape":
+            # Esc здесь НЕ обрабатывается: его закрывает глобальный блок on_key
+            # (закрывает меню и возвращается, не ставя паузу).
+            if k == "0":
                 self._interaction_active = False
+                self._interaction_submenu_active = False
+                self._saved_interaction_actions = None
                 self.update_map()
                 self.update_info()
                 event.stop()
@@ -557,16 +592,56 @@ class GalaxyMapApp(App):
 
     def _on_interaction_key(self, event):
         k = event.key.lower()
+
+        # ── Ship screens submenu mode ──
+        if self._interaction_submenu_active:
+            if k == "escape" or k == "0":
+                self._interaction_submenu_active = False
+                self.ctrl.interaction_actions = self._saved_interaction_actions
+                self._saved_interaction_actions = None
+                self.update_map()
+                self.update_info()
+                event.stop()
+                return
+            if k.isdigit():
+                idx = int(k) - 1
+                if 0 <= idx < len(self.ctrl.interaction_actions):
+                    _, label, action_id, _ = self.ctrl.interaction_actions[idx]
+                    self._interaction_active = False
+                    self._interaction_submenu_active = False
+                    self._push_ship_screen(action_id)
+                    self.update_map()
+                    self.update_info()
+                return
+
+        # ── Main interaction menu mode ──
         if k == "escape" or k == "0":
             self._interaction_active = False
             self.ctrl.state = GameState.PLAYING
             self.update_map()
             self.update_info()
+            event.stop()
             return
         if k.isdigit():
             idx = int(k) - 1
             if 0 <= idx < len(self.ctrl.interaction_actions):
                 _, label, action_id, _ = self.ctrl.interaction_actions[idx]
+
+                # Enter ship screens submenu
+                if action_id == "ship_screens":
+                    self._saved_interaction_actions = list(self.ctrl.interaction_actions)
+                    self._interaction_submenu_active = True
+                    self.ctrl.interaction_actions = [
+                        ("1", "🚢 Bridge (F1)", "bridge", "Ship"),
+                        ("2", "⚙ Engineering (F2)", "engineering", "Ship"),
+                        ("3", "🎯 Tactical (F3)", "tactical", "Ship"),
+                        ("4", "📦 Cargo (F4)", "cargo", "Ship"),
+                        ("5", "👥 Crew (F5)", "crew", "Ship"),
+                    ]
+                    self.update_map()
+                    self.update_info()
+                    return
+
                 self._interaction_active = False
                 result = self.ctrl.run_interaction(action_id)
                 if isinstance(result, tuple):
@@ -590,6 +665,19 @@ class GalaxyMapApp(App):
                 self.update_map()
                 self.update_info()
                 return
+
+    def _push_ship_screen(self, action_id):
+        """Pushes a ship screen by action_id (bridge/engineering/tactical/cargo/crew)."""
+        m = {
+            "bridge": BridgeScreen,
+            "engineering": EngineeringScreen,
+            "tactical": TacticalScreen,
+            "cargo": CargoScreen,
+            "crew": CrewScreen,
+        }
+        cls = m.get(action_id)
+        if cls:
+            self.push_screen(cls())
 
     # -------------------------------------------------------------------
     # Movement

@@ -78,6 +78,8 @@ class GameController:
         self.log_filter_index = 0
         self._prev_state = GameState.START_SCREEN
         self._interaction_active = False
+        self._interaction_submenu_active = False
+        self._saved_interaction_actions = None
         self._pending_battle = None
         self._dismiss_handled_escape = False
         self.world_frozen = False
@@ -217,6 +219,8 @@ class GameController:
         self._dismiss_handled_escape = False
         self.world_frozen = False
         self._interaction_active = False
+        self._interaction_submenu_active = False
+        self._saved_interaction_actions = None
         self.explored_tiles = set()
         self._init_player_position()
         self._discover_tiles()
@@ -930,12 +934,8 @@ class GameController:
                 nob = self.galaxy.objects.get((px + dx, py + dy))
                 if nob:
                     add(nob, px + dx, py + dy, dx, dy)
-        # ── Ship management (always available) ──
-        acts.append(("1", "🚢 Bridge (F1)", "bridge", "Ship"))
-        acts.append(("2", "⚙ Engineering (F2)", "engineering", "Ship"))
-        acts.append(("3", "🎯 Tactical (F3)", "tactical", "Ship"))
-        acts.append(("4", "📦 Cargo (F4)", "cargo", "Ship"))
-        acts.append(("5", "👥 Crew (F5)", "crew", "Ship"))
+        # ── Ship management (always available, opens submenu) ──
+        acts.append(("s", "🚢 Ship screens (F1-F5)", "ship_screens", "Ship"))
         return acts
 
     def _act_bridge(self):
@@ -977,7 +977,9 @@ class GameController:
     def _act_repair(self):
         if self.ship.credits >= 30:
             self.ship.credits -= 30
-            max_hull = 100 + self.ship.get_effective_stats().get("hull_bonus", 0)
+            # Кап по фактическому максимуму корпуса (не хардкод 100):
+            # на фрегате/эсминце ремонт должен работать до их max_hull.
+            max_hull = self.ship.max_hull + self.ship.get_effective_stats().get("hull_bonus", 0)
             o = self.ship.hull
             self.ship.hull = min(max_hull, self.ship.hull + 15)
             self.logger.trade(t("log.hull_repaired", amount=self.ship.hull - o))
@@ -1106,7 +1108,11 @@ class GameController:
 
     def try_landing(self):
         tile = self.galaxy.tiles[self.player_y][self.player_x]
-        TILE_TO_SITE = {"o": "planet", "÷": "asteroid", "◈": "station"}
+        TILE_TO_SITE = {
+            TILE_PLANET: "planet",
+            TILE_ASTEROIDS: "asteroid",
+            TILE_STATION: "station",
+        }
         st = self.galaxy.get_station_at(self.player_x, self.player_y)
         if st:
             site_type = st.stype
@@ -1169,6 +1175,18 @@ class GameController:
     @staticmethod
     def _direction_name(dx, dy):
         return DIR_LABELS.get((dx, dy), "?")
+
+    @staticmethod
+    def _parse_int(value, default=None):
+        """Безопасный парсинг целого числа из ввода консоли.
+
+        Returns:
+            int при валидном вводе, иначе default (None).
+        """
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
 
     # -------------------------------------------------------------------
     # Movement & world tick
@@ -1292,8 +1310,10 @@ class GameController:
         elif c == "give":
             if len(p) >= 2:
                 rid = p[1].lower()
-                amt = int(p[2]) if len(p) >= 3 else 1
-                if rid in RESOURCES:
+                amt = self._parse_int(p[2]) if len(p) >= 3 else 1
+                if amt is None:
+                    self.logger.system(f"Invalid number '{p[2]}'.")
+                elif rid in RESOURCES:
                     self.ship.cargo.add(rid, amt)
                     name = RESOURCES[rid]["name"]
                     self.logger.system(f"+{amt} {name}.")
@@ -1302,8 +1322,10 @@ class GameController:
         elif c == "take":
             if len(p) >= 2:
                 rid = p[1].lower()
-                amt = int(p[2]) if len(p) >= 3 else 1
-                if rid in RESOURCES:
+                amt = self._parse_int(p[2]) if len(p) >= 3 else 1
+                if amt is None:
+                    self.logger.system(f"Invalid number '{p[2]}'.")
+                elif rid in RESOURCES:
                     self.ship.cargo.remove(rid, amt)
                     name = RESOURCES[rid]["name"]
                     self.logger.system(f"-{amt} {name}.")
@@ -1311,8 +1333,12 @@ class GameController:
                     self.logger.system(f"Unknown '{rid}'.")
         elif c == "set" and len(p) >= 3:
             if p[1] == "hull":
-                self.ship.hull = max(1, int(p[2]))
-                self.logger.system(f"Hull={self.ship.hull}.")
+                v = self._parse_int(p[2])
+                if v is None:
+                    self.logger.system(f"Invalid number '{p[2]}'.")
+                else:
+                    self.ship.hull = max(1, v)
+                    self.logger.system(f"Hull={self.ship.hull}.")
         elif c == "refuel":
             self.ship.fuel = 100
             self.logger.system("Fuel=100")
@@ -1330,8 +1356,10 @@ class GameController:
             self._handle_market_command(p)
         elif c == "power" and len(p) >= 3:
             comp = p[1].lower()
-            val = int(p[2])
-            if comp in self.ship.compartments:
+            val = self._parse_int(p[2])
+            if val is None:
+                self.logger.system(f"Invalid number '{p[2]}'.")
+            elif comp in self.ship.compartments:
                 self.ship.compartments[comp]["power"] = max(0, min(10, val))
                 self.logger.system(f"{comp} power={self.ship.compartments[comp]['power']}.")
             else:
@@ -1350,12 +1378,15 @@ class GameController:
                 sub = p[1].lower()
                 if sub == "jettison" and len(p) >= 3:
                     rid = p[2].lower()
-                    amt = int(p[3]) if len(p) >= 4 else 999
-                    have = self.ship.cargo.has(rid)
-                    amt = min(amt, have)
-                    if amt > 0:
-                        self.ship.cargo.remove(rid, amt)
-                        self.logger.system(f"Jettisoned {amt} {rid}.")
+                    amt = self._parse_int(p[3]) if len(p) >= 4 else 999
+                    if amt is None:
+                        self.logger.system(f"Invalid number '{p[3]}'.")
+                    else:
+                        have = self.ship.cargo.has(rid)
+                        amt = min(amt, have)
+                        if amt > 0:
+                            self.ship.cargo.remove(rid, amt)
+                            self.logger.system(f"Jettisoned {amt} {rid}.")
                 elif sub == "sellall":
                     st = self.galaxy.get_station_at(self.player_x, self.player_y)
                     if st:
@@ -1388,7 +1419,10 @@ class GameController:
             self._act_hail_npc()
         elif c == "smuggle" and len(p) >= 3:
             rid = p[1].lower()
-            amt = int(p[2])
+            amt = self._parse_int(p[2])
+            if amt is None:
+                self.logger.system(f"Invalid number '{p[2]}'.")
+                return
             st = self.galaxy.get_station_at(self.player_x, self.player_y)
             if not st:
                 self.logger.system("Not at station.")
@@ -1421,7 +1455,10 @@ class GameController:
             self.logger.system("trade buy/sell <res> [amt]"); return
         sub = p[1].lower()
         rid = p[2].lower()
-        amt = int(p[3]) if len(p) >= 4 else 1
+        amt = self._parse_int(p[3]) if len(p) >= 4 else 1
+        if amt is None:
+            self.logger.system(f"Invalid number '{p[3]}'.")
+            return
         if sub == "buy":
             self.logger.system(st.sell_to(self.ship, rid, amt))
         elif sub == "sell":
@@ -1430,7 +1467,10 @@ class GameController:
     def _handle_market_command(self, p):
         sub = p[1].lower()
         if sub == "scan":
-            r = int(p[2]) if len(p) >= 3 else 12
+            r = self._parse_int(p[2]) if len(p) >= 3 else 12
+            if r is None:
+                self.logger.system(f"Invalid number '{p[2]}'.")
+                return
             stations = self.galaxy.stations_in_range(self.player_x, self.player_y, r)
             if stations:
                 for s in stations[:6]:
