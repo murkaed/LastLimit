@@ -1367,6 +1367,21 @@ class GameController:
                 self.logger.system(f"{comp} power={self.ship.compartments[comp]['power']}.")
             else:
                 self.logger.system(f"Unknown compartment '{comp}'.")
+        elif c == "repair" and len(p) >= 2:
+            # Ремонт модуля: 2 металла + 1 электроника (дефолты repair_module).
+            # Ресурсы проверяются ДО ремонта — repair_module применяет его сразу.
+            comp = p[1].lower()
+            if comp not in self.ship.compartments:
+                self.logger.system(f"Unknown compartment '{comp}'.")
+            elif not any(m.durability < m.max_durability for m in self.ship.compartments[comp]["modules"]):
+                self.logger.system(f"No damaged modules in {comp}.")
+            elif self.ship.cargo.has("metal") >= 2 and self.ship.cargo.has("electronics") >= 1:
+                self.ship.cargo.remove("metal", 2)
+                self.ship.cargo.remove("electronics", 1)
+                msg, _ = self.ship.repair_module(comp)
+                self.logger.system(msg)
+            else:
+                self.logger.system("Need 2 metal + 1 electronics for repair.")
         elif c in ("modules", "mods"):
             if len(p) >= 2 and p[1] == "list":
                 for comp in COMPARTMENTS:

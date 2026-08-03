@@ -430,6 +430,7 @@ class TestBattleDamageTypes:
         bc = BattleController(p, e, app=None)
         weapons = bc._get_player_weapons()
         old_log = len(bc.log)
+        random.seed(1)  # гарантируем попадание (иначе тип урона не логируется)
         bc.do_attack(0, "shield")
         # Check that a damage type name appears in the log
         new_msgs = bc.log[old_log:]
@@ -443,6 +444,7 @@ class TestBattleDamageTypes:
         p = create_random_ship(is_player=True)
         e = create_random_enemy()
         bc = BattleController(p, e, app=None)
+        random.seed(1)  # гарантируем попадание
         bc.do_attack(0, "shield")
         # Find the final "→ Weapon @ comp [Type]" line
         for msg in reversed(bc.log):

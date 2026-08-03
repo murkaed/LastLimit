@@ -780,7 +780,8 @@ class ColonyManager:
             Реально перемещённое количество.
         """
         available = self.storage.get(resource_id, 0)
-        to_move = min(amount, available)
+        free = ship_cargo.free()
+        to_move = min(amount, available, max(0, free))
         if to_move <= 0:
             return 0
         self.storage[resource_id] = available - to_move

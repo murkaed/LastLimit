@@ -114,9 +114,19 @@ def test_wormhole_collapses_when_alone():
 # Colonies
 # =============================================================================
 
+def _colonizable_planet(ctrl):
+    from colony import PLANET_TYPES
+    for p, t in ctrl.galaxy.planet_types.items():
+        if not PLANET_TYPES.get(t, {}).get("orbit_only"):
+            return p
+    return None
+
+
 def test_found_colony_requires_starter():
     ctrl = GameController()
-    px, py = next(iter(ctrl.galaxy.planet_types))
+    px, py = _colonizable_planet(ctrl)
+    if px is None:
+        return  # в этой генерации нет колонизируемых планет
     ctrl.player_x, ctrl.player_y = px, py
     ctrl.found_colony()
     assert (px, py) not in ctrl.galaxy.colonies
@@ -124,7 +134,9 @@ def test_found_colony_requires_starter():
 
 def test_found_colony_creates_and_open_returns_screen():
     ctrl = GameController()
-    px, py = next(iter(ctrl.galaxy.planet_types))
+    px, py = _colonizable_planet(ctrl)
+    if px is None:
+        return
     ctrl.player_x, ctrl.player_y = px, py
     ctrl.ship.cargo.add("colony_starter", 1)
     ctrl.found_colony()

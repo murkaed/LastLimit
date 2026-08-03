@@ -684,6 +684,8 @@ class GalaxyMapApp(App):
                         self.push_screen(CargoScreen())
                     elif screen_name == "CrewScreen":
                         self.push_screen(CrewScreen())
+                    elif screen_name == "LandingPrepScreen":
+                        self.push_screen(LandingPrepScreen(site_type=result[1], site_name=result[2]))
                     elif screen_name in SCREEN_MAP:
                         screen_cls = SCREEN_MAP[screen_name]
                         self.push_screen(screen_cls(result[1]))

@@ -121,6 +121,7 @@ async def test_cargo_screen_hotkey_works_without_input_focus():
 @pytest.mark.asyncio
 async def test_action_menu_dispatch_refuel_repair_land():
     """Раньше — AttributeError: у GalaxyMapApp нет _act_refuel/_act_repair/_try_landing."""
+    from config import TILE_EMPTY
     from ui import ActionMenu
     app = GalaxyMapApp()
     async with app.run_test(size=(80, 44)) as pilot:
@@ -131,6 +132,10 @@ async def test_action_menu_dispatch_refuel_repair_land():
             app.push_screen(menu)
             await pilot.pause()
             await pilot.pause()
+            if action == "land":
+                # детерминированно: игрок на пустом тайле — try_landing вернёт None
+                px, py = app.ctrl.player_x, app.ctrl.player_y
+                app.ctrl.galaxy.tiles[py][px] = TILE_EMPTY
             menu._dispatch(action)  # не должно быть AttributeError
             await pilot.pause()
         # После трёх dismiss'ов на стеке снова только главный экран
