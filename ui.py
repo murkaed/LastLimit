@@ -2203,11 +2203,11 @@ class SettingsScreen(Screen):
             if self._selected >= len(opts): return
             oid, val = opts[self._selected]
             if oid == "lang":
-                s["lang"] = "en" if s["lang"]=="ru" else "ru"
-                from locales import set_lang; set_lang(s["lang"])
+                self._settings["lang"] = "en" if self._settings["lang"] == "ru" else "ru"
+                from locales import set_lang; set_lang(self._settings["lang"])
                 self._refresh_ui()
             elif oid == "autosave":
-                s["autosave"] = not s["autosave"]
+                self._settings["autosave"] = not self._settings["autosave"]
                 self._refresh_ui()
             elif oid.startswith("key_"):
                 action = oid[4:]
@@ -2519,7 +2519,9 @@ class PlanetSurfaceScreen(Screen):
         elif event.key == "i":
             self._show_info()
             return
-        elif event.key == "s":
+        elif event.key == "S":
+            # Передача груза: «s» занят движением вниз (WASD), поэтому
+            # для передачи используется заглавная «S» (как в подсказке).
             self._transfer_to_ship()
             return
         elif event.key == "c":
@@ -2713,17 +2715,17 @@ class PlanetSurfaceScreen(Screen):
             self._refresh()
 
         inp.on_input_submitted = on_input
-        # Handle Esc to remove input
-        orig_handler = inp.on_key
+        # Обработка Esc: Textual вызывает _on_key, а не on_key
+        orig_key = inp._on_key
 
         def on_input_key(key_event):
             if key_event.key == "escape":
                 inp.remove()
                 self._refresh()
                 return
-            orig_handler(key_event)
+            orig_key(key_event)
 
-        inp.on_key = on_input_key
+        inp._on_key = on_input_key
 
     def _manage_colonists(self):
         """Управление колонистами (найм/увольнение)."""
