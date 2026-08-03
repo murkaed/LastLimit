@@ -8,6 +8,13 @@ from galaxy_map import GalaxyMapApp, GameState
 from models import CrewMember, TraderShip, PirateShip
 
 
+@pytest.fixture(autouse=True)
+def _isolate_settings(tmp_path, monkeypatch):
+    """SettingsScreen._save_close пишет в settings.json — направляем в tmp."""
+    import config as cfg
+    monkeypatch.setattr(cfg, "SETTINGS_FILE", str(tmp_path / "settings.json"))
+
+
 async def _start_game(pilot, app):
     await pilot.pause()
     await pilot.press("1")
@@ -157,7 +164,9 @@ async def test_action_menu_attack_npc():
 # =============================================================================
 
 @pytest.mark.asyncio
-async def test_settings_screen():
+async def test_settings_screen(tmp_path, monkeypatch):
+    import config as cfg
+    monkeypatch.setattr(cfg, "SETTINGS_FILE", str(tmp_path / "settings.json"))
     from ui import SettingsScreen
     app = GalaxyMapApp()
     async with app.run_test(size=(80, 44)) as pilot:
@@ -185,6 +194,7 @@ async def test_settings_screen():
         screen._selected = len(screen._opts()) - 1  # последняя опция — reset
         await pilot.press("enter")
         await pilot.pause()
-        # сохранение и закрытие
+        # сохранение и закрытие (в tmp-файл)
         screen.on_input_submitted(_ev("close"))
         await pilot.pause()
+        assert (tmp_path / "settings.json").exists()
