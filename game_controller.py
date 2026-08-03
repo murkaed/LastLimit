@@ -1232,6 +1232,9 @@ class GameController:
     def tick_world(self):
         self.logger.new_turn()
         self.ship.regen_shields()
+        # Machine Cult: авто-ремонт корпуса (README)
+        if self.ship.race == "machine_cult" and self.ship.hull < self.ship.max_hull:
+            self.ship.hull = min(self.ship.max_hull, self.ship.hull + 2)
         failed = self.ship.fail_expired_missions(self.galaxy.news)
         for m in failed:
             self.logger.system(t("log.mission_expired", title=m.title))
@@ -1443,7 +1446,7 @@ class GameController:
         elif c == "log":
             self.handle_log_command(p)
         elif c == "save":
-            self.logger.system("Save not implemented.")
+            return ("save", None)
         elif c == "exit":
             return ("exit", None)
 

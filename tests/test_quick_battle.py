@@ -106,7 +106,8 @@ class TestBattleIntegration:
         bc = BattleController(p, e, app=None)
         # Try a few actions to make sure nothing crashes
         bc.do_attack(0, "shield")
-        assert bc.over is False or bc.over is True  # could be over after one shot
+        # Атака произвела записи в лог (выстрел/промах/нехватка энергии)
+        assert len(bc.log) > 0
         # Skills also should not crash
         bc2 = BattleController(p, e, app=None)
         bc2.do_skill("emergency_repair")
@@ -149,5 +150,5 @@ class TestBattleIntegration:
             if bc.over:
                 break
             bc.do_use_item("repair_kit")
-        # Should not crash — either battle ended or we ran out of turns
-        assert bc.over is False or bc.over is True
+        # Бой завершился ходом врага или атаками — в логе есть записи
+        assert len(bc.log) > 0

@@ -214,12 +214,9 @@ class TestMovement:
         # Find a passable tile to the right
         if playing_ctrl.galaxy.is_passable(px + 1, py):
             should_advance, pending = playing_ctrl.move_player(1, 0)
-            if py == playing_ctrl.player_y and playing_ctrl.player_x > px:
-                assert True  # moved right
-            else:
-                pass  # blocked by something, OK
-        else:
-            pass  # edge of map, skip
+            assert playing_ctrl.player_x == px + 1
+            assert should_advance is True
+        # иначе — край карты/преграда, тест пропускается
 
     def test_move_left(self, playing_ctrl):
         px = playing_ctrl.player_x
@@ -371,10 +368,14 @@ class TestTrading:
         """Mine action tries to add ore (probabilistic)."""
         playing_ctrl.ship.cargo.items.clear()
         playing_ctrl.ship.cargo.capacity = 50
+        before = playing_ctrl.ship.cargo.has("ore")
+        n_logs = len(playing_ctrl.logger.get_messages())
         random.seed(123)
         playing_ctrl._act_mine()
-        # Either got ore or depleted — both valid
-        assert True  # no crash
+        after = playing_ctrl.ship.cargo.has("ore")
+        new_logs = len(playing_ctrl.logger.get_messages())
+        # Либо добыли руду, либо получили сообщение в лог — действие сработало
+        assert after > before or new_logs > n_logs
 
 
 # =============================================================================
@@ -387,10 +388,12 @@ class TestLogDisplay:
         assert isinstance(result, str)
 
     def test_log_filter_cycle(self, playing_ctrl):
-        old_filter = playing_ctrl.log_category_filter
-        playing_ctrl.cycle_log_filter()
-        # Filter may have changed or cycled back
-        assert True  # no crash
+        opts = playing_ctrl._log_filter_options()
+        first = playing_ctrl.log_category_filter
+        for _ in range(len(opts)):
+            playing_ctrl.cycle_log_filter()
+        # Полный цикл вернулся к начальному фильтру
+        assert playing_ctrl.log_category_filter == first
 
     def test_log_filter_label(self, playing_ctrl):
         label = playing_ctrl._log_filter_label()
@@ -408,8 +411,10 @@ class TestLogDisplay:
     def test_log_handle_clear(self, playing_ctrl):
         playing_ctrl.logger.system("test message")
         playing_ctrl.handle_log_command(["log", "clear"])
-        # Logger should be cleared
-        assert True  # no crash
+        # Старое сообщение удалено; осталось только подтверждение очистки
+        rendered = playing_ctrl.logger.render_plain(n=20)
+        assert "test message" not in rendered
+        assert "Log cleared." in rendered
 
     def test_log_handle_search(self, playing_ctrl):
         playing_ctrl.logger.system("unique test message 12345")

@@ -205,13 +205,16 @@ def test_use_shield_booster_not_wasted_without_shield_cap(player_ship):
 
 
 def test_battle_use_item_not_wasted_at_full_hull(player_ship):
+    from battle import BATTLE_CONSUMABLES
+    from locales import t
     enemy = PirateShip(1, 1)
     player_ship.hull = player_ship.max_hull
     before = player_ship.cargo.has("repair_kit")
     bc = BattleController(player_ship, enemy)
     bc.do_use_item("repair_kit")
     assert player_ship.cargo.has("repair_kit") == before
-    assert any("already max" in m for m in bc.log)
+    expected = t("battle.consumable_no_effect", name=BATTLE_CONSUMABLES["repair_kit"]["name"])
+    assert expected in bc.log
 
 
 def test_battle_use_item_still_consumed_when_effect_applies(player_ship):

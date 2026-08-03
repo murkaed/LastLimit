@@ -146,8 +146,10 @@ class TestSaveLoad:
 # =============================================================================
 
 @pytest.mark.asyncio
-async def test_f6_saves_game():
-    """F6 saves the game state."""
+async def test_f6_saves_game(tmp_path, monkeypatch):
+    """F6 saves the game state to disk."""
+    import galaxy_map as gm
+    monkeypatch.setattr(gm, "SAVE_FILE", str(tmp_path / "savegame.dat"))
     app = GalaxyMapApp()
     async with app.run_test(size=(80, 44)) as pilot:
         await pilot.pause()
@@ -162,12 +164,16 @@ async def test_f6_saves_game():
         # Save
         await pilot.press("f6")
         await pilot.pause()
-        assert hasattr(app, "_saved_state")
+        save_file = tmp_path / "savegame.dat"
+        assert save_file.exists()
+        assert save_file.stat().st_size > 0
 
 
 @pytest.mark.asyncio
-async def test_f7_loads_game():
-    """F7 loads previously saved state."""
+async def test_f7_loads_game(tmp_path, monkeypatch):
+    """F7 loads previously saved state from disk."""
+    import galaxy_map as gm
+    monkeypatch.setattr(gm, "SAVE_FILE", str(tmp_path / "savegame.dat"))
     app = GalaxyMapApp()
     async with app.run_test(size=(80, 44)) as pilot:
         await pilot.pause()

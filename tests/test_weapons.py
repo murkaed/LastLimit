@@ -382,7 +382,9 @@ class TestBattleAmmo:
         old_log = len(bc.log)
         bc.do_attack(0, "shield")
         new_msgs = bc.log[old_log:]
-        assert any("out of ammo" in msg for msg in new_msgs), f"No 'out of ammo' in {new_msgs}"
+        from locales import t
+        expected = t("battle.out_of_ammo", name=kw.name)
+        assert any(expected in msg for msg in new_msgs), f"No ammo message in {new_msgs}"
 
     def test_attack_with_ammo_succeeds(self):
         p = create_random_ship(is_player=True)
@@ -410,7 +412,9 @@ class TestBattleAmmo:
         w.current_ammo = 0
         # Laser should fire even with current_ammo=0 (no ammo slot)
         bc.do_attack(0, "shield")
-        assert not any("out of ammo" in msg for msg in bc.log[-3:])
+        from locales import t
+        expected = t("battle.out_of_ammo", name=w.name)
+        assert not any(expected in msg for msg in bc.log[-3:])
 
 
 # ═══════════════════════════════════════════════════════════════════════

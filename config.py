@@ -35,6 +35,7 @@ DIR_LABELS = {
 RESOURCES = {
     "ore":        {"name": "Ore",           "cat": "raw",      "base_price": 5},
     "ice":        {"name": "Ice",           "cat": "raw",      "base_price": 3},
+    "food":       {"name": "Food",          "cat": "raw",      "base_price": 6},
     "silicon":    {"name": "Silicon",       "cat": "raw",      "base_price": 8},
     "metal":      {"name": "Metal",         "cat": "refined",  "base_price": 20},
     "electronics":{"name": "Electronics",   "cat": "refined",  "base_price": 45},
@@ -297,6 +298,24 @@ SHIP_HULLS = {
         "speed": 1,
         "cost": 6000,
         "desc": "Heavy combat vessel — many modules, sturdy hull.",
+    },
+    "freighter": {
+        "name": "Freighter",
+        "compartments": 6,
+        "hull": 130,
+        "cargo": 100,
+        "speed": 1,
+        "cost": 4000,
+        "desc": "Merchant vessel — big cargo hold, sturdy hull.",
+    },
+    "scout": {
+        "name": "Scout",
+        "compartments": 4,
+        "hull": 80,
+        "cargo": 35,
+        "speed": 2,
+        "cost": 1000,
+        "desc": "Fast light scout — great sensors, weak hull.",
     },
     "destroyer": {
         "name": "Destroyer",

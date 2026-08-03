@@ -560,6 +560,10 @@ class PlayerShip:
         for k, v in penalties.items():
             merged[k] = merged.get(k, 0) + v
         self.race_data = merged
+        # Voidborn ненавидят все фракции (README) — стартовая репутация
+        if self.race == "voidborn":
+            for f in self.reputation:
+                self.reputation[f] = -10
         # Применяем модификаторы корпуса
         hull_mod = merged.pop("max_hull", 0)
         old_max = self.max_hull
@@ -1878,8 +1882,8 @@ class Galaxy:
             Кортеж (x, y).
         """
         return (
-            max(0, min(WIDTH - 1, x + self._rng.randint(-md, md))),
-            max(0, min(HEIGHT - 1, y + self._rng.randint(-md, md))),
+            max(0, min(self.width - 1, x + self._rng.randint(-md, md))),
+            max(0, min(self.height - 1, y + self._rng.randint(-md, md))),
         )
 
     # ---- Queries ----
@@ -2102,13 +2106,13 @@ class Galaxy:
             Кортеж (новые_координаты_игрока, список_событий, флаг_смерти).
         """
         events = []
-        # Black holes
+        # Black holes (Voidborn невосприимчивы к гравитации — README)
         for bh_x, bh_y in self.black_holes:
             d = max(abs(px - bh_x), abs(py - bh_y))
             if d == 0:
                 events.append("Black hole!")
                 return px, py, events, True
-            if d <= 3:
+            if d <= 3 and getattr(ps, "race", "") != "voidborn":
                 dx = 1 if bh_x > px else -1 if bh_x < px else 0
                 dy = 1 if bh_y > py else -1 if bh_y < py else 0
                 nx, ny = px + dx, py + dy
@@ -2193,6 +2197,12 @@ class Galaxy:
                             if t2.alive and t2.x == tx and t2.y == ty:
                                 t2.take_damage(15)
                                 out.append(f"Pirate attacks {t2.name}!")
+                                # Пираты воруют груз (README)
+                                items = [r for r, q in t2.cargo.items.items() if q > 0]
+                                if items:
+                                    rid = self._rng.choice(items)
+                                    t2.cargo.remove(rid, 1)
+                                    out.append(f"Pirate steals 1×{rid} from {t2.name}!")
                                 if not t2.alive:
                                     out.append(f"{t2.name} destroyed.")
                                 break
@@ -2354,6 +2364,11 @@ def create_random_ship(is_player=True):
 
     # Заполняем случайными модулями
     _fill_ship_compartments(ship, hull_cfg)
+
+    # Гарантируем хотя бы одно оружие — случайный корабль без оружия
+    # делает быстрый бой невыигрываемым (и флакает тесты боя).
+    if not ship.compartments["weapon"]["modules"]:
+        ship.compartments["weapon"]["modules"].append(ShipModule("laser_turret"))
 
     # Экипаж
     crew_count = random.randint(2, 3)

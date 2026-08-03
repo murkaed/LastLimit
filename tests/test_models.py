@@ -123,11 +123,12 @@ class TestCargoHold:
         assert ch.has("nonexistent") == 0
 
     def test_total_value(self, cargo_hold):
-        """cargo_hold fixture: metal=20, electronics=10, food=5 (food not in RESOURCES, ignored)."""
-        # Only items in RESOURCES contribute
+        """cargo_hold fixture: metal=20, electronics=10, food=5."""
+        # All items in the fixture are now valid RESOURCES
         expected = (
             20 * RESOURCES["metal"]["base_price"]
             + 10 * RESOURCES["electronics"]["base_price"]
+            + 5 * RESOURCES["food"]["base_price"]
         )
         assert cargo_hold.total_value() == expected
 

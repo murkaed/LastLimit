@@ -461,7 +461,7 @@ RU = {
     "battle.escape_failed": "✗ Побег не удался!",
     "battle.engine_destroyed": "✗ Двигатель уничтожен! Побег невозможен.",
     "battle.module_broken": "💥 {name} УНИЧТОЖЕН!",
-    "battle.need_energy": "Нужно {cost}е, есть {have}.",
+    "battle.need_energy": "Нужно {cost}е для {name} (есть {have}).",
     "battle.skill_unavailable": "✗ {name} недоступен (сенсор уничтожен).",
     "battle.reload_complete": "🔃 {name} перезаряжен: {ammo}/{cap} ({type})",
     "battle.reload_failed": "✗ Нет {type} в трюме для {name}!",
@@ -488,6 +488,20 @@ RU = {
     "battle.consumable_energy": "{name}! Энергия +{amount}.",
     "battle.unknown_item": "Неизвестный '{item}'.",
     "battle.no_item": "Нет {name}!",
+    "battle.enemy_first": "☠ {name} ходит первым!",
+    "battle.player_first": "▶ {name} ходит первым!",
+    "battle.out_of_ammo": "✗ {name}: патроны кончились! Перезарядитесь.",
+    "battle.shield_damage": "🛡 Щит: -{amount} ({type})",
+    "battle.disruptor_destroy": "💥 Разрушитель: {name} УНИЧТОЖЕН! (обход щита)",
+    "battle.disruptor_hit": "⚡ Разрушитель: {name} -{dmg} прочн ({dur}/{maxdur})",
+    "battle.disruptor_hull": "💢 Разрушитель бьёт по корпусу! -{dmg}",
+    "battle.module_damaged": "🔧 {name} -{dmg} прочн ({dur}/{maxdur})",
+    "battle.hull_hit": "💢 Попадание в корпус! -{dmg} ({type})",
+    "battle.ion_drain": "⚡ Ионный разряд: -{amount} энергии врага!",
+    "battle.attack_line": "→ {name} @ {comp} [{type}] {crit}",
+    "battle.energy_regen": "⚡ Энергия +{amount} (реген {regen}).",
+    "battle.consumable_no_effect": "{name} — уже максимум.",
+    "battle.comp_destroyed": "☠УНИЧТОЖЕН",
 }
 
 # Словарь английских переводов: строки интерфейса на английском языке.
@@ -943,7 +957,7 @@ EN = {
     "battle.escape_failed": "✗ Escape failed!",
     "battle.engine_destroyed": "✗ Engine destroyed! Can't escape.",
     "battle.module_broken": "💥 {name} BROKEN!",
-    "battle.need_energy": "Need {cost}e, have {have}.",
+    "battle.need_energy": "Need {cost}e for {name} (have {have}).",
     "battle.skill_unavailable": "✗ {name} unavailable (sensor destroyed).",
     "battle.reload_complete": "🔃 {name} reloaded: {ammo}/{cap} ({type})",
     "battle.reload_failed": "✗ No {type} in cargo for {name}!",
@@ -970,6 +984,20 @@ EN = {
     "battle.consumable_energy": "{name}! Energy +{amount}.",
     "battle.unknown_item": "Unknown '{item}'.",
     "battle.no_item": "No {name}!",
+    "battle.enemy_first": "☠ {name} moves first!",
+    "battle.player_first": "▶ {name} moves first!",
+    "battle.out_of_ammo": "✗ {name} out of ammo! Reload required.",
+    "battle.shield_damage": "🛡 Shield: -{amount} ({type})",
+    "battle.disruptor_destroy": "💥 Disruptor: {name} DESTROYED! (shield bypass)",
+    "battle.disruptor_hit": "⚡ Disruptor: {name} -{dmg} dur ({dur}/{maxdur})",
+    "battle.disruptor_hull": "💢 Disruptor hits hull! -{dmg}",
+    "battle.module_damaged": "🔧 {name} -{dmg} dur ({dur}/{maxdur})",
+    "battle.hull_hit": "💢 Hull hit! -{dmg} ({type})",
+    "battle.ion_drain": "⚡ Ion drain: -{amount} enemy energy!",
+    "battle.attack_line": "→ {name} @ {comp} [{type}] {crit}",
+    "battle.energy_regen": "⚡ Energy +{amount} (regen {regen}).",
+    "battle.consumable_no_effect": "{name} — already at maximum.",
+    "battle.comp_destroyed": "☠DESTROYED",
 }
 
 # ---------------------------------------------------------------------------
@@ -1018,7 +1046,12 @@ def t(key, **kwargs):
         # Fallback to EN keys
         val = EN.get(key, f"❌{key}")
     if kwargs:
-        return val.format(**kwargs)
+        try:
+            return val.format(**kwargs)
+        except (KeyError, IndexError, ValueError):
+            # Несовпадение плейсхолдеров не должно ронять игру:
+            # возвращаем видимый маркер вместо исключения.
+            return f"❌{key} (format error: {kwargs})"
     return val
 
 

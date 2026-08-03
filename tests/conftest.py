@@ -14,6 +14,13 @@ from config import RESOURCES, SHIP_MODULES, COMPARTMENTS, GROUND_ENEMIES
 from config import load_settings, save_settings
 
 
+@pytest.fixture(autouse=True)
+def _isolate_save_file(tmp_path, monkeypatch):
+    """Направляет savegame.dat в tmp, чтобы тесты не писали в проект."""
+    import galaxy_map
+    monkeypatch.setattr(galaxy_map, "SAVE_FILE", str(tmp_path / "savegame.dat"))
+
+
 @pytest.fixture
 def player_ship():
     """Вернуть корабль игрока с базовыми модулями, грузом и кредитами.
@@ -81,7 +88,7 @@ def pirate():
     Возвращает:
         PirateShip: пират "Raider" с 40 ед. корпуса и 10 щитов.
     """
-    p = PirateShip(5, 5, "Raider")
+    p = PirateShip(5, 5)
     p.hull = 40
     p.max_hull = 40
     p.shield_hp = 10
@@ -95,7 +102,7 @@ def trader():
     Возвращает:
         TraderShip: торговец "Merchant" с 60 корпуса и ресурсами.
     """
-    t = TraderShip(7, 5, "Merchant")
+    t = TraderShip(7, 5, [0])
     t.hull = 60
     t.max_hull = 60
     t.cargo.add("metal", 15)
@@ -176,8 +183,12 @@ def settings_file(tmp_path):
     new = str(tmp_path / "settings.json")
     # Подменяем путь в модуле config, чтобы тесты не трогали реальный файл
     import config as cfg
+    old_cfg = cfg.SETTINGS_FILE
     cfg.SETTINGS_FILE = new
-    return new
+    yield new
+    # Восстанавливаем исходный путь — иначе последующие app-тесты
+    # читают настройки из удалённого tmp_path (flaky-порядок запуска)
+    cfg.SETTINGS_FILE = old_cfg
 
 
 @pytest.fixture

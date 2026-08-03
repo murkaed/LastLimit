@@ -389,10 +389,10 @@ class BattleController:
         e_roll = e_spd + random.randint(1, 6)
         if e_roll > p_roll:
             self.turn_order = "enemy"
-            self.add_log(f"☠ {self.enemy.name} moves first!")
+            self.add_log(t("battle.enemy_first", name=self.enemy.name))
         else:
             self.turn_order = "player"
-            self.add_log(f"▶ {self.player.name} moves first!")
+            self.add_log(t("battle.player_first", name=self.player.name))
 
     def add_log(self, msg):
         """Добавляет запись в лог боя. Лог обрезается до последних 30 записей.
@@ -437,7 +437,7 @@ class BattleController:
         old = self.player_energy
         self.player_energy = min(self.player_max_energy, self.player_energy + regen)
         if self.player_energy > old:
-            self.add_log(f"⚡ Energy +{self.player_energy - old} (regen {regen}).")
+            self.add_log(t("battle.energy_regen", amount=self.player_energy - old, regen=regen))
 
     # ── Действия игрока ───────────────────────────────────────────────
 
@@ -455,7 +455,7 @@ class BattleController:
         self.player_defending = False
         weapons = self._get_player_weapons()
         if not weapons:
-            self.add_log("No weapons!")
+            self.add_log(t("battle.no_weapons"))
             self._next_turn(); return
         weapon = weapons[weapon_idx] if 0 <= weapon_idx < len(weapons) else weapons[0]
         base_dmg = weapon.stats.get("damage", 10)
@@ -467,11 +467,11 @@ class BattleController:
         damage_type = _get_weapon_damage_type(weapon, weapon.loaded_ammo_type if hasattr(weapon, 'loaded_ammo_type') else None)
         # Проверка боеприпасов
         if weapon.needs_ammo() and not weapon.has_ammo():
-            self.add_log(f"✗ {weapon_name} out of ammo! Reload required.")
+            self.add_log(t("battle.out_of_ammo", name=weapon_name))
             self._next_turn(); return
         # Проверка: хватает ли энергии на выстрел
         if self.player_energy < en_cost:
-            self.add_log(f"⚡ Need {en_cost}e for {weapon_name} (have {self.player_energy}).")
+            self.add_log(t("battle.need_energy", cost=en_cost, name=weapon_name, have=self.player_energy))
             self._next_turn(); return
         self.player_energy -= en_cost
         # Расход боеприпаса
@@ -506,12 +506,12 @@ class BattleController:
         hit_chance = max(5, min(95, accuracy - e_evasion))
         is_crit = random.random() < 0.10 + self._crew_bonus("accuracy") * 0.002
         if random.random() * 100 >= hit_chance:
-            self.add_log(f"✗ {weapon_name} missed!")
+            self.add_log(t("battle.missed", name=weapon_name))
             self._next_turn(); return
         # Критический удар — удвоение урона
         if is_crit:
             damage = int(damage * 2)
-            self.add_log(f"★ CRITICAL!")
+            self.add_log(t("battle.critical"))
         # Выбор цели
         if target_comp is None or target_comp not in self.enemy_comps:
             target_comp = random.choice(COMPARTMENTS)
@@ -523,7 +523,7 @@ class BattleController:
         shield_dmg, hull_dmg = _apply_shield_resist(damage, damage_type, self.enemy.shield_hp)
         if shield_dmg > 0:
             self.enemy.shield_hp = max(0, self.enemy.shield_hp - shield_dmg)
-            self.add_log(f"🛡 Shield: -{shield_dmg} ({damage_type})")
+            self.add_log(t("battle.shield_damage", amount=shield_dmg, type=damage_type))
 
         # Шаг 2: для disruption — урон идёт напрямую модулям, минуя броню
         if damage_type == "disruption":
@@ -533,12 +533,12 @@ class BattleController:
                 hit["dur"] = max(0, hit["dur"] - hull_dmg)
                 if hit["dur"] <= 0:
                     hit["active"] = False
-                    self.add_log(f"💥 Disruptor: {hit['name']} DESTROYED! (shield bypass)")
+                    self.add_log(t("battle.disruptor_destroy", name=hit["name"]))
                 else:
-                    self.add_log(f"⚡ Disruptor: {hit['name']} -{hull_dmg} dur ({hit['dur']}/{hit['max_dur']})")
+                    self.add_log(t("battle.disruptor_hit", name=hit["name"], dmg=hull_dmg, dur=hit["dur"], maxdur=hit["max_dur"]))
             elif hull_dmg > 0:
                 self.enemy.hull = max(0, self.enemy.hull - hull_dmg)
-                self.add_log(f"💢 Disruptor hits hull! -{hull_dmg}")
+                self.add_log(t("battle.disruptor_hull", dmg=hull_dmg))
         else:
             # Шаг 2: сопротивление брони
             armor = sum(m.get("armor", 0) for m in comp["modules"])
@@ -554,22 +554,22 @@ class BattleController:
                     hit["dur"] = max(0, hit["dur"] - hull_dmg)
                     if hit["dur"] <= 0:
                         hit["active"] = False
-                        self.add_log(f"💥 {hit['name']} DESTROYED!")
+                        self.add_log(t("battle.module_broken", name=hit["name"]))
                     else:
-                        self.add_log(f"🔧 {hit['name']} -{hull_dmg} dur ({hit['dur']}/{hit['max_dur']})")
+                        self.add_log(t("battle.module_damaged", name=hit["name"], dmg=hull_dmg, dur=hit["dur"], maxdur=hit["max_dur"]))
                 else:
                     self.enemy.hull = max(0, self.enemy.hull - hull_dmg)
-                    self.add_log(f"💢 Hull hit! -{hull_dmg} ({damage_type})")
+                    self.add_log(t("battle.hull_hit", dmg=hull_dmg, type=damage_type))
 
         # Спецэффект ионного урона
         if damage_type == "ion" and ammo_used and weapon.loaded_ammo_type == "emp_charge":
             drain = AMMO_TYPES["emp_charge"].get("energy_drain", 0)
             if drain > 0:
-                self.add_log(f"⚡ Ion drain: -{drain} enemy energy!")
+                self.add_log(t("battle.ion_drain", amount=drain))
 
         # Лог выстрела
         dt_name = DAMAGE_TYPES.get(damage_type, {}).get("name", damage_type)
-        self.add_log(f"→ {weapon_name} @ {target_comp} [{dt_name}] {'★' if is_crit else ''}")
+        self.add_log(t("battle.attack_line", name=weapon_name, comp=target_comp, type=dt_name, crit="★" if is_crit else ""))
         # Проверка: уничтожен ли враг
         if self.enemy.hull <= 0:
             self._on_enemy_defeated(); return
@@ -587,7 +587,7 @@ class BattleController:
         cap = stats.get("shield_cap", 30)
         old = self.player.shield_hp
         self.player.shield_hp = min(cap, self.player.shield_hp + regen)
-        self.add_log(f"🛡 Defensive! Shields {self.player.shield_hp}/{cap} (+{self.player.shield_hp-old}).")
+        self.add_log(t("battle.defensive", cur=self.player.shield_hp, cap=cap, delta=self.player.shield_hp - old))
         self._next_turn()
 
     def do_use_item(self, item_rid):
@@ -598,31 +598,31 @@ class BattleController:
         """
         self.player_defending = False
         info = BATTLE_CONSUMABLES.get(item_rid)
-        if not info: self.add_log(f"Unknown '{item_rid}'."); return
-        if not self.player.cargo.has(item_rid): self.add_log(f"No {info['name']}!"); return
+        if not info: self.add_log(t("battle.unknown_item", item=item_rid)); return
+        if not self.player.cargo.has(item_rid): self.add_log(t("battle.no_item", name=info["name"])); return
         eff = info["effect"]
         # Не тратим предмет впустую: проверяем, что эффект возможен
         if "hull" in eff and self.player.hull >= self.player.max_hull:
-            self.add_log(f"{info['name']} — hull already max."); return
+            self.add_log(t("battle.consumable_no_effect", name=info["name"])); return
         if "shield" in eff:
             cap = self.player.get_effective_stats().get("shield_cap", 0)
             if self.player.shield_hp >= cap:
-                self.add_log(f"{info['name']} — shields already full."); return
+                self.add_log(t("battle.consumable_no_effect", name=info["name"])); return
         if "energy" in eff and self.player_energy >= self.player_max_energy:
-            self.add_log(f"{info['name']} — energy already full."); return
+            self.add_log(t("battle.consumable_no_effect", name=info["name"])); return
         self.player.cargo.remove(item_rid, 1)
         if "hull" in eff:
             self.player.hull = min(self.player.max_hull, self.player.hull + eff["hull"])
-            self.add_log(f"{info['name']}! Hull +{eff['hull']}.")
+            self.add_log(t("battle.consumable_hull", name=info["name"], amount=eff["hull"]))
         if "shield" in eff:
             cap = self.player.get_effective_stats().get("shield_cap", 30)
             old = self.player.shield_hp
             self.player.shield_hp = min(cap, self.player.shield_hp + eff["shield"])
-            self.add_log(f"{info['name']}! Shield +{self.player.shield_hp - old}.")
+            self.add_log(t("battle.consumable_shield", name=info["name"], amount=self.player.shield_hp - old))
         if "energy" in eff:
             old = self.player_energy
             self.player_energy = min(self.player_max_energy, self.player_energy + eff["energy"])
-            self.add_log(f"{info['name']}! Energy +{self.player_energy - old}.")
+            self.add_log(t("battle.consumable_energy", name=info["name"], amount=self.player_energy - old))
         self._next_turn()
 
     def do_skill(self, skill_id):
@@ -640,25 +640,25 @@ class BattleController:
         skill = BATTLE_SKILLS.get(skill_id)
         if not skill: return
         if self.player_energy < skill["energy_cost"]:
-            self.add_log(f"Need {skill['energy_cost']}e, have {self.player_energy}."); return
+            self.add_log(t("battle.need_energy", cost=skill["energy_cost"], name=skill["name"], have=self.player_energy)); return
         if not self._player_can_skill(skill_id):
-            self.add_log(f"✗ {skill['name']} unavailable (sensor destroyed)."); return
+            self.add_log(t("battle.skill_unavailable", name=skill["name"])); return
         self.player_energy -= skill["energy_cost"]
         if skill_id == "overload_shields":
             cap = self.player.get_effective_stats().get("shield_cap", 30)
             restore = int(cap * 0.3)
             self.player.shield_hp = min(cap, self.player.shield_hp + restore)
-            self.add_log(f"⚡ Overload Shields! +{restore} shield.")
+            self.add_log(t("battle.overload_shields", amount=restore))
         elif skill_id == "precise_shot":
             dmg = 15 + self.player.get_effective_stats().get("damage", 0) + self._crew_bonus("damage")
             is_crit = random.random() < 0.5
-            if is_crit: dmg *= 2; self.add_log("★ PRECISE SHOT CRIT!")
+            if is_crit: dmg *= 2; self.add_log(t("battle.precise_shot_crit"))
             self.enemy.take_damage(dmg)
-            self.add_log(f"🎯 Precise Shot! {self.enemy.hull} hull remains.")
+            self.add_log(t("battle.precise_shot", enemy=self.enemy.name, hull=self.enemy.hull))
             if not self.enemy.alive: self._on_enemy_defeated(); return
         elif skill_id == "emergency_repair":
             self.player.hull = min(self.player.max_hull, self.player.hull + 30)
-            self.add_log("🔧 Emergency Repair! +30 hull.")
+            self.add_log(t("battle.emergency_repair"))
         self._next_turn()
 
     def do_escape(self):
@@ -671,16 +671,16 @@ class BattleController:
         Если двигатель уничтожен — побег невозможен.
         """
         if not self._player_has_working_engine():
-            self.add_log("✗ Engine destroyed! Can't escape.")
+            self.add_log(t("battle.engine_destroyed"))
             self._next_turn(); return
         p_spd = self.player.get_effective_stats().get("speed", 1) + self._crew_bonus("speed")
         e_spd = _total_enemy_stat(self.enemy_comps, "evasion") // 5 + 2
         base = 40 + (p_spd - e_spd) * 5
         chance = max(10, min(90, base))
         if random.random() * 100 < chance:
-            self.add_log("✓ Escaped!"); self.over = True; self.victory = False
+            self.add_log(t("battle.escaped")); self.over = True; self.victory = False
         else:
-            self.add_log("✗ Escape failed!"); self._next_turn()
+            self.add_log(t("battle.escape_failed")); self._next_turn()
 
     def do_reload(self):
         """Перезаряжает первое оружие, в котором закончились боеприпасы.
@@ -699,10 +699,10 @@ class BattleController:
                 target_ammo = w.loaded_ammo_type or "slug"
                 loaded = w.load_ammo(target_ammo, w.ammo_capacity, self.player.cargo)
                 if loaded > 0:
-                    self.add_log(f"🔃 {w.name} reloaded: {w.current_ammo}/{w.ammo_capacity} ({target_ammo})")
+                    self.add_log(t("battle.reload_complete", name=w.name, ammo=w.current_ammo, cap=w.ammo_capacity, type=target_ammo))
                     reloaded = True
                 else:
-                    self.add_log(f"✗ No {target_ammo} in cargo for {w.name}!")
+                    self.add_log(t("battle.reload_failed", type=target_ammo, name=w.name))
                     self._next_turn(); return
                 break
         if not reloaded:
@@ -712,11 +712,11 @@ class BattleController:
                     target_ammo = w.loaded_ammo_type or "slug"
                     loaded = w.load_ammo(target_ammo, w.ammo_capacity - w.current_ammo, self.player.cargo)
                     if loaded > 0:
-                        self.add_log(f"🔃 {w.name} topped up: {w.current_ammo}/{w.ammo_capacity} ({target_ammo})")
+                        self.add_log(t("battle.reload_topped", name=w.name, ammo=w.current_ammo, cap=w.ammo_capacity, type=target_ammo))
                         reloaded = True
                     break
         if not reloaded:
-            self.add_log("✗ All weapons already loaded.")
+            self.add_log(t("battle.all_loaded"))
         self._next_turn()
 
     def _tick_player_status_effects(self):
@@ -729,7 +729,7 @@ class BattleController:
         if self._player_comp_destroyed("life_support"):
             dmg = 5
             self.player.hull = max(0, self.player.hull - dmg)
-            self.add_log(f"☠ Life support failed! -{dmg} hull (crew suffocating).")
+            self.add_log(t("battle.life_support_fail", dmg=dmg))
             if self.player.hull <= 0:
                 self._on_player_defeated(); return
         if self._player_comp_destroyed("cargo"):
@@ -737,7 +737,7 @@ class BattleController:
             if items:
                 lost = random.choice(items)
                 qty = self.player.cargo.remove(lost, 1)
-                self.add_log(f"💨 Cargo breached! Lost 1×{lost}.")
+                self.add_log(t("battle.cargo_breach", item=lost))
 
     def _next_turn(self):
         """Завершает ход игрока: тикают эффекты, реген энергии, ход врага."""
@@ -768,12 +768,12 @@ class BattleController:
         if hull_pct < 0.3 and "repair_kit" in self.enemy_items:
             self.enemy_items.remove("repair_kit")
             self.enemy.hull = min(self.enemy_max_hull, self.enemy.hull + 20)
-            self.add_log(f"☠ {self.enemy.name} uses Repair Kit!")
+            self.add_log(t("battle.enemy_repair", name=self.enemy.name))
             self._check_player_death(); return
         # Попытка побега при критическом уровне корпуса
         if hull_pct < 0.2 and random.random() < 0.4:
             if random.random() < 0.5:
-                self.add_log(f"☠ {self.enemy.name} fled!"); self.over = True; self.victory = True; return
+                self.add_log(t("battle.enemy_fled", name=self.enemy.name)); self.over = True; self.victory = True; return
         # Атака оружием или таран
         if weapons:
             weapon = random.choice(weapons)
@@ -799,11 +799,11 @@ class BattleController:
                         if alive_mods:
                             hit = random.choice(alive_mods)
                             hit.durability = max(0, hit.durability - hull_dmg)
-                            self.add_log(f"☠ {self.enemy.name} disrupts {hit.name}! (-{hull_dmg})")
-                            if hit.is_broken(): hit.active = False; self.add_log(f"💥 {hit.name} BROKEN!")
+                            self.add_log(t("battle.enemy_disrupt", enemy=self.enemy.name, module=hit.name, dmg=hull_dmg))
+                            if hit.is_broken(): hit.active = False; self.add_log(t("battle.module_broken", name=hit.name))
                         else:
                             self.player.hull = max(0, self.player.hull - hull_dmg)
-                            self.add_log(f"☠ {self.enemy.name} hull hit! -{hull_dmg}")
+                            self.add_log(t("battle.enemy_hit_hull", enemy=self.enemy.name, dmg=hull_dmg))
                     else:
                         hull_dmg = _apply_armor_resist(hull_dmg, damage_type, armor=5)
                         hull_dmg = _apply_comp_damage_mod(hull_dmg, damage_type, tcomp)
@@ -811,21 +811,21 @@ class BattleController:
                         if alive_mods:
                             hit = random.choice(alive_mods)
                             hit.durability = max(0, hit.durability - hull_dmg)
-                            self.add_log(f"☠ {self.enemy.name} hits {hit.name}! (-{hull_dmg})")
-                            if hit.is_broken(): hit.active = False; self.add_log(f"💥 {hit.name} BROKEN!")
+                            self.add_log(t("battle.enemy_hit_mod", enemy=self.enemy.name, module=hit.name, dmg=hull_dmg))
+                            if hit.is_broken(): hit.active = False; self.add_log(t("battle.module_broken", name=hit.name))
                         else:
                             self.player.hull = max(0, self.player.hull - hull_dmg)
-                            self.add_log(f"☠ {self.enemy.name} hits hull! (-{hull_dmg})")
+                            self.add_log(t("battle.enemy_hit_hull", enemy=self.enemy.name, dmg=hull_dmg))
                 dt_name = DAMAGE_TYPES.get(damage_type, {}).get("name", damage_type)
-                self.add_log(f"☠ {self.enemy.name} attacks {tcomp} [{dt_name}].")
+                self.add_log(t("battle.enemy_attack", enemy=self.enemy.name, comp=tcomp, type=dt_name))
             else:
-                self.add_log(f"☠ {self.enemy.name} missed!")
+                self.add_log(t("battle.enemy_missed", name=self.enemy.name))
         else:
             # Таран — если у врага нет оружия
             dmg = 10
             if self.player_defending: dmg = max(1, dmg // 2)
             self.player.take_damage(dmg)
-            self.add_log(f"☠ {self.enemy.name} rams! -{dmg} hull.")
+            self.add_log(t("battle.enemy_rams", name=self.enemy.name, dmg=dmg))
         self._check_player_death()
 
     def _check_player_death(self):
@@ -846,16 +846,17 @@ class BattleController:
         self.player.cargo.add(loot_item, amt)
         if self.is_pirate:
             self.player.reputation["free_traders"] = min(100, self.player.reputation.get("free_traders", 0) + 2)
-        self.add_log(f"★ {self.enemy.name} destroyed! +{loot_cr}cr, {amt}×{loot_item}.")
+        msg = t("battle.victory_loot", name=self.enemy.name, cr=loot_cr, amt=amt, item=loot_item)
+        self.add_log(msg)
         if self.app is not None and hasattr(self.app, "logger"):
-            self.app.logger.combat(f"★ Victory! +{loot_cr}cr, {amt}×{loot_item}.")
+            self.app.logger.combat(msg)
 
     def _on_player_defeated(self):
         """Обрабатывает поражение игрока: завершает бой и записывает причину смерти."""
         self.over = True; self.victory = False
-        self.add_log(f"☠ {self.player.name} destroyed...")
+        self.add_log(t("battle.player_destroyed", name=self.player.name))
         if self.app is not None and hasattr(self.app, "death_cause"):
-            self.app.death_cause = f"Destroyed by {self.enemy.name}."
+            self.app.death_cause = t("battle.player_destroyed", name=self.enemy.name)
 
     def debug_enemy_status(self):
         """Возвращает отладочную строку с состоянием всех отсеков врага.
@@ -1006,7 +1007,7 @@ class BattleScreen(Screen):
                     parts.append(f"{m['name'][:8]}[{dur_bar}]")
                 e_lines.append(f"  {n}{comp:<12} {' '.join(parts)}")
             else:
-                status = t("battle.inert") if not ed["modules"] else "☠DESTROYED"
+                status = t("battle.inert") if not ed["modules"] else t("battle.comp_destroyed")
                 e_lines.append(f"  {n}{comp:<12} {status}")
         self.query_one("#enemy-comps").update("\n".join(e_lines))
 
@@ -1136,8 +1137,10 @@ class BattleScreen(Screen):
         c = self.ctrl; app = self.app
         if not c.victory and c.player.hull <= 0:
             if hasattr(app, "GameState"):
-                from galaxy_map import GameState
+                # Импорт отложенный: game_controller импортирует battle,
+                # а модульный импорт отсюда создал бы цикл.
+                from game_controller import GameState
                 app.state = GameState.GAME_OVER
-            app.death_cause = f"Destroyed by {c.enemy.name}."
+            app.death_cause = t("battle.player_destroyed", name=c.enemy.name)
         if hasattr(app, "update_map"): app.update_map()
         if hasattr(app, "update_info"): app.update_info()

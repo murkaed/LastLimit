@@ -7,6 +7,7 @@ and screen management only.
 """
 
 import random
+import os
 from textual.app import App, ComposeResult
 from textual.containers import Container
 from textual.widgets import Static, Header, Footer
@@ -44,6 +45,10 @@ SCREEN_MAP = {
     "CraftingScreen": CraftingScreen,
     "HireScreen": HireScreen,
 }
+
+
+# Файл сохранения игры (рядом с приложением)
+SAVE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "savegame.dat")
 
 
 class GalaxyMapApp(App):
@@ -267,6 +272,7 @@ class GalaxyMapApp(App):
         self.ctrl.explored_tiles = set()
         if self.ctrl.fog_enabled:
             self.ctrl._discover_tiles()
+        self._autosave_enabled = bool(_cfg.get("autosave", True))
         self.update_map()
         self.update_info()
 
@@ -307,6 +313,7 @@ class GalaxyMapApp(App):
         self.ctrl.tick_world()
         self.update_map()
         self.update_info()
+        self._maybe_autosave()
 
     # -------------------------------------------------------------------
     # Key handling
@@ -395,18 +402,36 @@ class GalaxyMapApp(App):
             self.ctrl.logger.system("🌫 Fog of War OFF.")
         self.update_map()
 
-    def _do_save(self):
+    def _do_save(self, silent=False):
         if self.ctrl.state != GameState.PLAYING:
             return
-        self._saved_state = self.ctrl.save_state()
-        self.ctrl.logger.system("💾 Game saved (F7 to load).")
+        try:
+            data = self.ctrl.save_state()
+            with open(SAVE_FILE, "wb") as fh:
+                fh.write(data)
+        except Exception as e:
+            self.ctrl.logger.system(f"Save failed: {e}.")
+            return
+        if not silent:
+            self.ctrl.logger.system("💾 Game saved to savegame.dat (F7 to load).")
+
+    def _maybe_autosave(self):
+        if not getattr(self, "_autosave_enabled", False):
+            return
+        self._do_save(silent=True)
 
     def _do_load(self):
-        if not hasattr(self, "_saved_state") or self._saved_state is None:
-            self.ctrl.logger.system("No save data. Press F6 to save first.")
+        try:
+            with open(SAVE_FILE, "rb") as fh:
+                data = fh.read()
+        except FileNotFoundError:
+            self.ctrl.logger.system("No save file. Press F6 to save first.")
+            return
+        except Exception as e:
+            self.ctrl.logger.system(f"Load failed: {e}.")
             return
         try:
-            GameController.restore_from_state(self.ctrl, self._saved_state)
+            GameController.restore_from_state(self.ctrl, data)
         except Exception as e:
             self.ctrl.logger.system(f"Load failed: {e}.")
             return
@@ -738,6 +763,8 @@ class GalaxyMapApp(App):
             action = result[0]
             if action == "battle":
                 self._initiate_battle(result[1])
+            elif action == "save":
+                self._do_save()
             elif action == "exit":
                 self.exit()
         self.update_info()

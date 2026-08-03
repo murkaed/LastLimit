@@ -69,8 +69,8 @@ Your actions affect standing with each faction. High reputation → trade discou
 5 playable races with unique traits:
 - **Human** — universal, no penalties
 - **Mutant** — 50% radiation resistance
-- **Xenos Bio** — organic resource bonus
-- **Machine Cult** — auto-repair, hated by religions
+- **Xenos Bio** — agile: evasion, speed, sensors
+- **Machine Cult** — auto-repair, precise, efficient reactors
 - **Voidborn** — immune to black hole gravity, hated by all factions
 
 ### 8. Random Events
